@@ -4,6 +4,7 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
+    branch: master
     plan: free
     envVars:
       - key: ANTHROPIC_API_KEY
