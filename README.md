@@ -167,9 +167,19 @@ The entire pipeline runs inside a 60-second timeout. If any agent fails, the
 state machine routes to an `error_handler` node and the frontend shows the
 error message.
 
-## Screenshot
+## Screenshots
 
-*(Add a screenshot here after running the app)*
+**Home — enter any research question:**
+
+![Home screen](screenshots/app-home.png)
+
+**Agents working — live pipeline view:**
+
+![Agents running](screenshots/app-running.png)
+
+**Result — full structured research report with citations:**
+
+![Research report](screenshots/app-result.png)
 
 ## Future Improvements
 
