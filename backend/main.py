@@ -127,7 +127,7 @@ async def stream_research(session_id: str):
             while True:
                 elapsed = asyncio.get_running_loop().time() - start
                 if elapsed > TIMEOUT_SECONDS:
-                    yield _sse_event("error", {"message": "Research timed out after 60 seconds"})
+                    yield _sse_event("error", {"message": f"Research timed out after {TIMEOUT_SECONDS} seconds"})
                     break
 
                 try:
