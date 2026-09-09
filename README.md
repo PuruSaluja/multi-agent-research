@@ -80,7 +80,7 @@ is why the Refiner is not simply another step in the sequence. See
 | Accounts | SQLAlchemy, Argon2, JWT |
 | Shared state | Redis (optional) |
 | Containerization | Docker, docker-compose |
-| Tests | pytest, GitHub Actions |
+| Tests | pytest |
 
 ## Quick start
 
@@ -256,8 +256,6 @@ test driving the real compiled graph through a refine round; and an end-to-end
 test that runs the actual FastAPI app and parses the real SSE stream. External
 APIs are faked, so the suite needs no keys and makes no billable calls.
 
-GitHub Actions runs the suite and the frontend build on every push.
-
 ### Live smoke test
 
 The suite proves the wiring; it does not prove a real run produces a good report.
@@ -365,7 +363,6 @@ multi-agent-research/
 |       +-- HistoryPanel.jsx      # Saved runs
 +-- scripts/live_smoke.py     # End-to-end run against the real APIs
 +-- docs/                     # Plan, ADRs, dev log
-+-- .github/workflows/ci.yml  # Tests + frontend build
 +-- docker-compose.yml        # Redis + backend + frontend
 +-- render.yaml
 ```
