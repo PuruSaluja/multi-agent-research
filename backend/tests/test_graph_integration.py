@@ -1,8 +1,8 @@
-"""Runs the real compiled LangGraph with the LLM and search layers faked.
+"""Runs the real compiled graph with the LLM and search layers faked.
 
-Routing unit tests prove the predicates; these prove the wiring -- that the
-refiner edge is reachable, that the cycle terminates, and that a fatal node
-short-circuits to the error handler.
+The routing tests cover the predicates; these cover the wiring: the refiner
+edge is reachable, the cycle terminates, and a fatal node reaches the error
+handler.
 """
 from contextlib import contextmanager
 
@@ -162,5 +162,10 @@ def test_report_tokens_are_emitted_during_a_full_run(monkeypatch):
     finally:
         events.set_emitter(None)
 
-    assert [t for t, _ in seen] == ["report_token", "report_token"]
-    assert "".join(d["text"] for _, d in seen) == final["final_report"]
+    tokens = [d for t, d in seen if t == "report_token"]
+    assert len(tokens) == 2
+    assert "".join(d["text"] for d in tokens) == final["final_report"]
+
+    # Progress is streamed as each agent finishes, not batched at node return.
+    agents = [d["agent"] for t, d in seen if t == "agent_update"]
+    assert agents == ["Planner", "Researcher", "Analyst", "Writer"]

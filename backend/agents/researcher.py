@@ -2,6 +2,7 @@ import time
 from datetime import datetime, timezone
 
 import config
+from events import emit_log
 from models import ResearchState
 from tools.search import SearchError, search_web
 
@@ -16,17 +17,11 @@ def _log(agent: str, action: str, detail) -> dict:
 
 
 def researcher_node(state: ResearchState) -> dict:
-    """Search for each outstanding sub-task.
+    """Search each outstanding sub-task: every one on the first pass, only the
+    refiner's rewrites afterwards.
 
-    On the first pass this is every sub-task. On a retry pass it is only the
-    sub-questions the refiner rewrote, so earlier results are not re-fetched.
-
-    Three outcomes per task are kept distinct:
-      * results found     -> stored
-      * ran, found nothing-> task recorded as unanswered
-      * could not run     -> task recorded as unanswered *and* as a failure
-    If every task failed to run, the whole node errors rather than handing
-    empty context to the Analyst.
+    Tracks "found nothing" separately from "could not run", and errors only if
+    every request failed.
     """
     pending = state.get("unanswered_tasks") or state.get("sub_tasks", [])
     search_results = dict(state.get("search_results", {}))
@@ -41,14 +36,14 @@ def researcher_node(state: ResearchState) -> dict:
         except SearchError as exc:
             failures.append(task)
             unanswered.append(task)
-            logs.append(_log("Researcher", "Search failed", f"{task} - {exc}"))
+            emit_log(logs, _log("Researcher", "Search failed", f"{task} - {exc}"))
         else:
             if results:
                 search_results[task] = results
-                logs.append(_log("Researcher", "Searched", task))
+                emit_log(logs, _log("Researcher", "Searched", task))
             else:
                 unanswered.append(task)
-                logs.append(_log("Researcher", "No results found", task))
+                emit_log(logs, _log("Researcher", "No results found", task))
 
         time.sleep(config.SEARCH_PACING_SECONDS)
 

@@ -1,12 +1,8 @@
-"""Per-run event emitter.
+"""Lets graph nodes push incremental output back to the run's event queue.
 
-The LangGraph nodes run inside a worker thread owned by ``main.py``. Nodes need
-a way to push incremental output (streamed report tokens, progress) back to
-that thread's queue without every node signature growing a callback argument.
-
-A ContextVar gives us that: ``main.py`` installs an emitter at the top of the
-worker thread, and any node can call ``emit(...)``. When no emitter is
-installed -- unit tests, a direct graph invocation -- ``emit`` is a no-op.
+The nodes run on a worker thread owned by main.py. A ContextVar avoids adding a
+callback argument to every node signature. With no emitter installed, emit() is
+a no-op.
 """
 import contextvars
 from typing import Callable, Optional
@@ -24,3 +20,15 @@ def emit(event_type: str, data: dict) -> None:
     fn = _emitter.get()
     if fn is not None:
         fn(event_type, data)
+
+
+def emit_log(logs: list[dict], entry: dict) -> list[dict]:
+    """Record a log entry and stream it now.
+
+    The graph only yields to main.py when a node returns, so a node that does
+    several seconds of work per item (the Researcher) would otherwise report
+    all of it in one burst at the end.
+    """
+    logs.append(entry)
+    emit("agent_update", entry)
+    return logs

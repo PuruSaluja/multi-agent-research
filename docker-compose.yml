@@ -9,7 +9,7 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
-    # Local dev override: the image itself runs without --reload.
+    # Dev only; the image itself runs without --reload.
     command: >
       uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --reload
     restart: unless-stopped
@@ -24,10 +24,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      # This value is baked into the browser bundle, so it must be a hostname
-      # the *browser* can resolve. Docker service names like "backend" only
-      # resolve inside the compose network, not on the host -- using one here
-      # makes every API call fail.
+      # Baked into the browser bundle, so it must resolve from the host.
+      # "backend" only resolves inside the compose network.
       - VITE_API_URL=http://localhost:8000
     depends_on:
       - backend

@@ -35,7 +35,7 @@ def test_error_always_routes_to_handler():
 
 
 def test_thin_coverage_with_budget_left_refines():
-    """ADR-001's conditional branch: a poor pass loops back for another try."""
+    """A poor pass loops back for another try."""
     state = _state(search_results={"a": []}, unanswered_tasks=["b", "c"])
     assert route_after_research(state) == "refine"
 
@@ -46,7 +46,7 @@ def test_good_coverage_proceeds_even_with_a_gap():
 
 
 def test_retry_budget_is_respected():
-    """Without this bound the refiner/researcher edge would cycle forever."""
+    """The refiner/researcher edge must not cycle forever."""
     state = _state(search_results={"a": []}, unanswered_tasks=["b", "c"], retry_count=1)
     assert route_after_research(state) == "continue"
 

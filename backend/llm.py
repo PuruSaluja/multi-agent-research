@@ -1,8 +1,4 @@
-"""Shared Anthropic client.
-
-One memoized client for every agent, so the API key is read once and the model
-choice lives in ``config`` rather than being repeated at each call site.
-"""
+"""Shared Anthropic client."""
 import os
 
 from anthropic import Anthropic
@@ -18,6 +14,5 @@ def get_client() -> Anthropic:
 
 
 def reset_client() -> None:
-    """Drop the memoized client. Used by tests."""
     global _client
     _client = None

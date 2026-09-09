@@ -30,8 +30,6 @@ def test_defaults_to_local_dev_origins(reloaded_config, monkeypatch):
 
 
 def test_deployed_origins_are_configurable(reloaded_config):
-    """The original bug: only localhost was allowed, so a Vercel frontend
-    calling a Render backend was blocked."""
     cfg = reloaded_config(
         CORS_ALLOW_ORIGINS="https://app.vercel.app, https://www.example.com",
         CORS_ALLOW_ORIGIN_REGEX=r"https://mar-.*\.vercel\.app",

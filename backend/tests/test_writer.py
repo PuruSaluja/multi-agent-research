@@ -35,7 +35,6 @@ def test_collect_sources_dedupes_preserving_order():
 
 
 def test_writer_streams_tokens_and_returns_assembled_report(monkeypatch):
-    """The dev log claimed token streaming; this is it actually happening."""
     monkeypatch.setattr(
         writer_mod, "get_client", lambda: FakeStreamClient(["# Title", "\n\nBody."])
     )
@@ -52,8 +51,11 @@ def test_writer_streams_tokens_and_returns_assembled_report(monkeypatch):
     finally:
         events.set_emitter(None)
 
-    assert [t for t, _ in seen] == ["report_token", "report_token"]
-    assert "".join(d["text"] for _, d in seen) == "# Title\n\nBody."
+    tokens = [d for t, d in seen if t == "report_token"]
+    assert len(tokens) == 2
+    assert "".join(d["text"] for d in tokens) == "# Title\n\nBody."
+    # The completion log streams too, rather than waiting for the node to return.
+    assert any(t == "agent_update" for t, _ in seen)
     assert out["final_report"] == "# Title\n\nBody."
     assert out["error"] is None
 

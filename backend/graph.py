@@ -22,7 +22,7 @@ def route_after_node(state: ResearchState) -> Literal["error_handler", "continue
 
 
 def coverage_ratio(state: ResearchState) -> float:
-    """Fraction of planned sub-questions that produced at least one source."""
+    """Fraction of sub-questions that produced at least one source."""
     sub_tasks = state.get("sub_tasks", [])
     if not sub_tasks:
         return 0.0
@@ -32,12 +32,7 @@ def coverage_ratio(state: ResearchState) -> float:
 def route_after_research(
     state: ResearchState,
 ) -> Literal["error_handler", "refine", "continue"]:
-    """Decide whether the research pass was good enough to analyse.
-
-    This is the branch that justifies a state graph over a linear chain: a thin
-    pass with retries left loops back through the refiner for another attempt,
-    rather than handing sparse context to the Analyst.
-    """
+    """Send a thin pass back through the refiner instead of on to the Analyst."""
     if state.get("error"):
         return "error_handler"
 
@@ -76,8 +71,7 @@ def build_graph():
             "continue": "analyst",
         },
     )
-    # The refiner always loops back for another search pass; retry_count and
-    # MAX_RESEARCH_RETRIES bound the cycle.
+    # retry_count / MAX_RESEARCH_RETRIES bound this cycle.
     graph.add_edge("refiner", "researcher")
     graph.add_conditional_edges(
         "analyst",

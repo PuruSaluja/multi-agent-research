@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import config
 from agents.planner import parse_task_list
+from events import emit_log
 from llm import get_client
 from models import ResearchState
 
@@ -16,11 +17,7 @@ SYSTEM_PROMPT = (
 
 
 def refiner_node(state: ResearchState) -> dict:
-    """Rewrite sub-questions that came back empty, so they can be retried.
-
-    This is the conditional branch the graph exists for: the researcher's
-    output decides whether we come here or move straight on to analysis.
-    """
+    """Rewrite sub-questions that came back empty so they can be retried."""
     unanswered = state.get("unanswered_tasks", [])
     logs = list(state.get("agent_logs", []))
     retry_count = state.get("retry_count", 0) + 1
@@ -47,9 +44,8 @@ def refiner_node(state: ResearchState) -> dict:
         )
         refined = parse_task_list(message.content[0].text)
     except Exception as e:
-        # A failed refinement is not fatal -- we simply proceed to analysis
-        # with whatever the first pass found.
-        logs.append({
+        # Not fatal: fall through to analysis with what the first pass found.
+        emit_log(logs, {
             "agent": "Refiner",
             "action": "Refinement failed, continuing with existing results",
             "detail": str(e),
@@ -63,7 +59,7 @@ def refiner_node(state: ResearchState) -> dict:
             "error": None,
         }
 
-    logs.append({
+    emit_log(logs, {
         "agent": "Refiner",
         "action": f"Rewrote {len(refined)} unproductive sub-question(s)",
         "detail": refined,

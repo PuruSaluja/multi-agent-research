@@ -63,7 +63,32 @@ the test suite that would have caught most of them.
   APIs. That needs credentials this audit did not have, so every test fakes the
   two external clients.
 
+### Verified against the live APIs
+Two full runs with real keys, via `scripts/live_smoke.py`:
+
+| | run 1 | run 2 |
+|---|---|---|
+| query | health effects of sleep deprivation | causes of the 2008 financial crisis |
+| total | 100.4s | 108.2s |
+| first report token | 40.1s | 40.7s |
+| report | 15,020 chars, 97 chunks | 15,514 chars, 111 chunks |
+| sources | 15 | 15 |
+
+Both produced structured reports with inline citations and a Limitations
+section, and all eight checks passed. Streamed chunks reassembled byte for byte
+into the final report.
+
+### Found and fixed during that run
+The agent timeline was not actually live. `compiled_graph.stream()` only yields
+when a node returns, so the Researcher's five searches — about 15 seconds of
+work — all appeared at once with the same timestamp. Progress now goes through
+the emitter (`emit_log`) as each step finishes, so the Researcher reports at
+7.2s, 10.6s, 12.7s, 16.2s and 18.6s rather than in one burst. `main.py` no
+longer diffs the log list; the emitter is the only path for `agent_update`.
+
 ### Next
+- 40 seconds to the first report token is the weak point of the run. Streaming
+  the Analyst's output as well would cut the visible gap roughly in half.
 - Cache Tavily results for repeated sub-queries to cut API cost
 - Query history panel in the frontend
 - Move session state to Redis if this ever needs more than one worker

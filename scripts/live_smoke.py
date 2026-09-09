@@ -1,19 +1,15 @@
 #!/usr/bin/env python
-"""End-to-end smoke test against the real Anthropic and Tavily APIs.
+"""Smoke test against the real Anthropic and Tavily APIs.
 
-The pytest suite fakes both external clients, so it proves the wiring but not
-that a real run produces a real report. This script closes that gap: it starts
-an actual uvicorn server, submits a query over HTTP, consumes the SSE stream,
-and checks that a sourced report streamed in.
-
-It costs real API credits -- roughly three Claude calls (planner, analyst,
-writer) plus one Tavily search per sub-question.
+Starts a uvicorn server, submits a query over HTTP, consumes the SSE stream and
+checks a sourced report streamed in. Costs real credits: three Claude calls
+plus one Tavily search per sub-question.
 
     python scripts/live_smoke.py
     python scripts/live_smoke.py --query "what is the state of fusion energy"
 
-Requires ANTHROPIC_API_KEY and TAVILY_API_KEY in .env at the repo root, or in
-the environment. Exits 0 on success, 1 on a failed check, 2 if unconfigured.
+Needs ANTHROPIC_API_KEY and TAVILY_API_KEY in .env or the environment.
+Exit 0 success, 1 a check failed, 2 not configured.
 """
 from __future__ import annotations
 

@@ -1,5 +1,4 @@
-"""Puts the backend package root on sys.path so tests can import the modules
-the app itself imports (``import config``, ``from models import ...``)."""
+"""Put the backend root on sys.path so tests import what the app imports."""
 import sys
 from pathlib import Path
 

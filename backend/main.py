@@ -27,10 +27,9 @@ from graph import compiled_graph  # noqa: E402
 class Session:
     """One research run's event queue.
 
-    NOTE: this store is in-process. The app must run with a single worker
-    (see the Dockerfile and README) -- with more than one, a POST handled by
-    worker A creates a session that worker B cannot find when the browser opens
-    the stream. Moving to multiple workers means moving this to Redis.
+    In-process, so the app must run with a single worker: with more than one, a
+    POST handled by worker A creates a session worker B cannot find when the
+    browser opens the stream. Redis is the fix if that ever changes.
     """
 
     queue: "queue.Queue" = field(default_factory=queue.Queue)
@@ -42,11 +41,8 @@ _sessions_lock = threading.Lock()
 
 
 def reap_stale_sessions(now: float | None = None) -> int:
-    """Drop sessions whose client never connected. Returns how many were removed.
-
-    Without this, every abandoned POST leaks a queue for the life of the
-    process.
-    """
+    """Drop sessions whose client never connected, so abandoned POSTs do not
+    leak a queue for the life of the process. Returns the number removed."""
     now = time.monotonic() if now is None else now
     with _sessions_lock:
         stale = [
@@ -106,7 +102,6 @@ def _run_graph_streaming(session_id: str, query: str) -> None:
         return
     q = session.queue
 
-    emitted_log_count = 0
     accumulated_state: dict = {
         "query": query,
         "sub_tasks": [],
@@ -120,8 +115,7 @@ def _run_graph_streaming(session_id: str, query: str) -> None:
         "retry_count": 0,
     }
 
-    # Lets nodes (the Writer) push incremental output without threading a
-    # callback through every signature.
+    # Lets the Writer stream chunks straight onto this queue.
     set_emitter(lambda event_type, data: q.put((event_type, data)))
 
     try:
@@ -136,11 +130,6 @@ def _run_graph_streaming(session_id: str, query: str) -> None:
                 if accumulated_state.get("error"):
                     q.put(("error", {"message": accumulated_state["error"]}))
                     return
-
-                all_logs = accumulated_state.get("agent_logs", [])
-                for log in all_logs[emitted_log_count:]:
-                    q.put(("agent_update", log))
-                emitted_log_count = len(all_logs)
 
         q.put((
             "complete",

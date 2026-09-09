@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 
 import config
+from events import emit_log
 from llm import get_client
 from models import ResearchState
 
@@ -43,17 +44,17 @@ def planner_node(state: ResearchState) -> dict:
         )
         sub_tasks = parse_task_list(message.content[0].text)
 
-        log_entry = {
+        logs = emit_log(list(state.get("agent_logs", [])), {
             "agent": "Planner",
             "action": "Generated sub-tasks",
             "detail": sub_tasks,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        })
         return {
             "sub_tasks": sub_tasks,
             "unanswered_tasks": [],
             "retry_count": 0,
-            "agent_logs": state.get("agent_logs", []) + [log_entry],
+            "agent_logs": logs,
             "current_agent": "Planner",
             "error": None,
         }

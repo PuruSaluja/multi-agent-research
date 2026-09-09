@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import config
+from events import emit_log
 from llm import get_client
 from models import ResearchState
 
@@ -62,7 +63,7 @@ def analyst_node(state: ResearchState) -> dict:
         )
         analysis = message.content[0].text.strip()
 
-        logs.append({
+        emit_log(logs, {
             "agent": "Analyst",
             "action": "Synthesized findings",
             "detail": f"Analyzed {len(search_results)} sub-questions",

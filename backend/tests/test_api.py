@@ -17,8 +17,7 @@ def _clean_sessions():
 
 @pytest.fixture
 def client(monkeypatch):
-    # Keep the graph out of the API tests -- routing and agents are covered
-    # by their own suites.
+    # Routing and agents have their own suites.
     monkeypatch.setattr(main, "_run_graph_streaming", lambda *a, **k: None)
     with TestClient(app) as c:
         yield c
@@ -53,7 +52,7 @@ def test_backpressure_returns_429(client, monkeypatch):
 
 
 def test_abandoned_sessions_are_reaped(monkeypatch):
-    """A POST whose client never opens the stream must not leak its queue."""
+    """A POST whose client never opens the stream must not leak a queue."""
     monkeypatch.setattr(config, "SESSION_TTL_SECONDS", 60)
     now = time.monotonic()
     sessions["fresh"] = Session(created_at=now)

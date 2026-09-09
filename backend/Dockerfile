@@ -9,7 +9,6 @@ COPY . .
 
 EXPOSE 8000
 
-# Single worker is required: session queues are held in process memory
-# (see the Session docstring in main.py). No --reload -- this image is what
-# render.yaml deploys.
+# One worker: session queues live in process memory (see main.py).
+# No --reload; this image is what render.yaml deploys.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

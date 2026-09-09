@@ -1,10 +1,8 @@
-"""End-to-end test of the real HTTP + SSE path.
+"""Drives the real app over HTTP and parses the actual SSE stream.
 
-The other API tests stub out the graph, so nothing exercised the pieces
-together: the worker thread, the ContextVar emitter, the queue hand-off, SSE
-framing, and the frontend's event contract. This drives the actual FastAPI app
-through a whole run, faking only the two genuinely external clients (Anthropic
-and Tavily) at the SDK boundary.
+The other API tests stub the graph out, so the worker thread, emitter, queue
+hand-off and SSE framing were never covered together. Only the Anthropic and
+Tavily clients are faked here.
 """
 import json
 from contextlib import contextmanager

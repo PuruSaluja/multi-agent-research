@@ -53,7 +53,7 @@ def test_empty_results_is_not_an_error(monkeypatch):
 
 
 def test_persistent_failure_raises_rather_than_returning_empty(monkeypatch):
-    """The original bug: an outage returned [] and looked like 'no results'."""
+    """An outage must not look like 'no results'."""
     fake = _install(monkeypatch, lambda n: RuntimeError("connection refused"))
     with pytest.raises(SearchError) as exc:
         search_web("q")

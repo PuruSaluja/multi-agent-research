@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import config
-from events import emit
+from events import emit, emit_log
 from llm import get_client
 from models import ResearchState
 
@@ -15,7 +15,7 @@ SYSTEM_PROMPT = (
 
 
 def collect_sources(search_results: dict[str, list]) -> list[dict]:
-    """Flatten search results into a de-duplicated source list, order preserved."""
+    """Flatten results into a de-duplicated source list, order preserved."""
     seen_urls: set[str] = set()
     sources = []
     for results in search_results.values():
@@ -27,12 +27,7 @@ def collect_sources(search_results: dict[str, list]) -> list[dict]:
 
 
 def writer_node(state: ResearchState) -> dict:
-    """Write the final report, streaming it to the client token by token.
-
-    The report is the longest output in the pipeline, so it is streamed rather
-    than awaited: each chunk is emitted as a ``report_token`` event, and the
-    assembled text is also returned in state for the final ``complete`` event.
-    """
+    """Write the final report, emitting each chunk as a report_token event."""
     logs = list(state.get("agent_logs", []))
     sources = collect_sources(state.get("search_results", {}))
 
@@ -60,7 +55,7 @@ def writer_node(state: ResearchState) -> dict:
 
         final_report = "".join(chunks).strip()
 
-        logs.append({
+        emit_log(logs, {
             "agent": "Writer",
             "action": "Report complete",
             "detail": f"Generated report with {len(sources)} sources",

@@ -8,12 +8,7 @@ _client: TavilyClient | None = None
 
 
 class SearchError(RuntimeError):
-    """A search could not be completed.
-
-    Distinct from a search that completed and found nothing -- that is an empty
-    list. Collapsing the two is how a total API outage turns into a confident
-    report written from no sources.
-    """
+    """A search could not be run. Not the same as a search that found nothing."""
 
 
 def get_client() -> TavilyClient:
@@ -29,18 +24,13 @@ def get_client() -> TavilyClient:
 
 
 def reset_client() -> None:
-    """Drop the memoized client. Used by tests."""
     global _client
     _client = None
 
 
 def search_web(query: str, max_results: int | None = None) -> list[dict]:
-    """Search the web via Tavily and return the top results.
-
-    Returns an empty list when the search ran but matched nothing. Raises
-    SearchError when the search could not be run at all -- the caller needs
-    that distinction to decide whether the research is trustworthy.
-    """
+    """Top Tavily results. Empty list if nothing matched, SearchError if the
+    request could not be made."""
     if max_results is None:
         max_results = config.SEARCH_MAX_RESULTS
 

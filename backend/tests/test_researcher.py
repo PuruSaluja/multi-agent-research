@@ -39,7 +39,7 @@ def test_partial_failure_does_not_abort_the_run(monkeypatch):
 
 
 def test_total_failure_sets_error(monkeypatch):
-    """Every search failing must not silently proceed to the Analyst."""
+    """Every search failing must not proceed to the Analyst."""
     monkeypatch.setattr(
         researcher_mod,
         "search_web",
