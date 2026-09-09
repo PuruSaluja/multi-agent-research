@@ -186,6 +186,8 @@ multi-agent-research/
 |   |       +-- FinalReport.jsx    # Markdown report + sources
 |   +-- nginx.conf             # SPA fallback for the production image
 |   +-- Dockerfile             # multi-stage: dev / build / nginx
++-- scripts/
+|   +-- live_smoke.py          # end-to-end run against the real APIs
 +-- docs/                      # plan, ADRs, dev log
 +-- docker-compose.yml
 +-- render.yaml
@@ -230,10 +232,32 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-37 tests covering search retry and failure semantics, researcher outcome
+40 tests covering search retry and failure semantics, researcher outcome
 handling, graph routing predicates, session lifecycle and backpressure, CORS
-configuration, and an integration test that drives the real compiled graph
-through a refine round. External APIs are faked, so the suite needs no keys.
+configuration, an integration test that drives the real compiled graph through
+a refine round, and an end-to-end test that runs the actual FastAPI app and
+parses the real SSE stream. External APIs are faked, so the suite needs no keys
+and makes no billable calls.
+
+### Live smoke test
+
+The suite proves the wiring; it does not prove that a real run produces a good
+report. This script does, against the real Anthropic and Tavily APIs:
+
+```bash
+python scripts/live_smoke.py
+python scripts/live_smoke.py --query "what is the state of fusion energy research"
+```
+
+It starts a real uvicorn server, submits a query over HTTP, consumes the SSE
+stream while printing each agent's progress, and then checks that the report
+streamed incrementally, that the streamed chunks reassemble into the final
+report, that sources were cited, and that the Markdown structure asked for is
+present. The report is written to `scripts/last_live_report.md` for review.
+
+It makes **real, billable API calls** -- about three Claude calls plus one
+Tavily search per sub-question -- which is why it is deliberately not part of
+`pytest`. Exit codes: 0 success, 1 a check failed, 2 keys not configured.
 
 ## Deployment
 
