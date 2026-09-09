@@ -2,6 +2,7 @@ import time
 
 from tavily import TavilyClient
 
+import cache
 import config
 
 _client: TavilyClient | None = None
@@ -28,11 +29,18 @@ def reset_client() -> None:
     _client = None
 
 
-def search_web(query: str, max_results: int | None = None) -> list[dict]:
+def search_web(
+    query: str, max_results: int | None = None, use_cache: bool = True
+) -> list[dict]:
     """Top Tavily results. Empty list if nothing matched, SearchError if the
     request could not be made."""
     if max_results is None:
         max_results = config.SEARCH_MAX_RESULTS
+
+    if use_cache:
+        hit = cache.get(query, max_results)
+        if hit is not None:
+            return hit
 
     client = get_client()
     last_error: Exception | None = None
@@ -50,7 +58,7 @@ def search_web(query: str, max_results: int | None = None) -> list[dict]:
                 time.sleep(config.SEARCH_BACKOFF_SECONDS * attempt)
             continue
 
-        return [
+        results = [
             {
                 "title": r.get("title", ""),
                 "url": r.get("url", ""),
@@ -58,6 +66,9 @@ def search_web(query: str, max_results: int | None = None) -> list[dict]:
             }
             for r in response.get("results", [])
         ]
+        if use_cache and results:
+            cache.set(query, max_results, results)
+        return results
 
     raise SearchError(
         f"Search failed after {config.SEARCH_MAX_ATTEMPTS} attempts: {last_error}"

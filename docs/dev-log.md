@@ -125,8 +125,44 @@ One thing that only showed up in the browser: the analysis panel was rendering
 raw Markdown (`##`, `**`) directly above the rendered report. It now goes
 through ReactMarkdown like the report does.
 
+### The four standing limitations, closed
+All measured against the live APIs through the Docker stack.
+
+**Speed.** Searches ran one at a time with a 0.5s pause between them. They now
+run concurrently, bounded by `SEARCH_CONCURRENCY`. Results are still logged in
+planned order from the parent thread, because the emitter is a ContextVar and
+pool threads start with a fresh context.
+
+| search phase | before | parallel | parallel + cached |
+|---|---|---|---|
+| 5 sub-questions | ~15s | 2.5s | 0.19s |
+| whole run | 92-120s | 83.1s | 74.8s |
+
+**One worker.** Session queues moved behind an interface with in-process and
+Redis backends (ADR-006). With `REDIS_URL` set the stack runs two uvicorn
+workers and a run POSTed to one worker streams correctly from the other.
+`/api/health` now reports `multi_worker_safe` so the difference is observable.
+
+**No caching.** Search results are cached for six hours, in Redis when
+available and a bounded dict otherwise. Verified by inspecting the keys in
+Redis after a run and timing a repeat of the same question.
+
+**No auth or history.** Email and password with Argon2, bearer tokens, runs
+saved per user, SQLite by default (ADR-007). Research still works signed out.
+Verified end to end through the UI: register, run, saved to history, reopen.
+
+### Found while doing it
+- The container would not start: `pydantic[email]` was installed locally but
+  never added to `requirements.txt`. Only the Docker build caught it.
+- The default `AUTH_SECRET` was 20 characters, under the 32-byte HS256
+  minimum, and shipping any default at all means anyone reading this repo can
+  forge a token. Startup now warns, and Render generates its own.
+- The search cache leaked between tests, since every test used the query "q".
+  Test isolation, not a product bug, but it hid three real assertions.
+
 ### Next
-- Cache Tavily results for repeated sub-queries to cut API cost
+- Stream the Writer's sources as they are collected rather than only at the end
+- Rate-limit registration; there is nothing stopping bulk account creation
 - Query history panel in the frontend
 - Move session state to Redis if this ever needs more than one worker
 

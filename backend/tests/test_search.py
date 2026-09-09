@@ -70,3 +70,52 @@ def test_transient_failure_is_retried(monkeypatch):
     )
     assert len(search_web("q")) == 1
     assert fake.calls == 2
+
+
+def test_repeat_query_is_served_from_cache(monkeypatch):
+    calls = []
+
+    class Fake:
+        def search(self, **kw):
+            calls.append(kw["query"])
+            return {"results": [{"title": "T", "url": "https://e.com", "content": "c"}]}
+
+    monkeypatch.setattr(search_mod, "get_client", lambda: Fake())
+
+    first = search_mod.search_web("what is entropy")
+    second = search_mod.search_web("What Is   Entropy")  # case and spacing differ
+
+    assert first == second
+    assert len(calls) == 1, "second lookup should not have reached Tavily"
+
+
+def test_cache_can_be_bypassed(monkeypatch):
+    calls = []
+
+    class Fake:
+        def search(self, **kw):
+            calls.append(kw["query"])
+            return {"results": [{"title": "T", "url": "https://e.com", "content": "c"}]}
+
+    monkeypatch.setattr(search_mod, "get_client", lambda: Fake())
+
+    search_mod.search_web("q1")
+    search_mod.search_web("q1", use_cache=False)
+    assert len(calls) == 2
+
+
+def test_failures_are_not_cached(monkeypatch):
+    state = {"n": 0}
+
+    class Fake:
+        def search(self, **kw):
+            state["n"] += 1
+            if state["n"] == 1:
+                return {"results": []}
+            return {"results": [{"title": "T", "url": "https://e.com", "content": "c"}]}
+
+    monkeypatch.setattr(search_mod, "get_client", lambda: Fake())
+
+    assert search_mod.search_web("q2") == []
+    # An empty result is not cached, so a later attempt can still succeed.
+    assert len(search_mod.search_web("q2")) == 1

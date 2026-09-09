@@ -16,7 +16,8 @@ from agents import planner as planner_mod
 from agents import refiner as refiner_mod
 from agents import researcher as researcher_mod
 from agents import writer as writer_mod
-from main import app, sessions
+import sessions as session_store
+from main import app
 
 REPORT_CHUNKS = ["## Executive Summary\n\n", "Water is wet.\n\n", "## References\n[1] ..."]
 
@@ -46,7 +47,7 @@ def _client(text, chunks=None):
 
 @pytest.fixture(autouse=True)
 def _wire(monkeypatch):
-    sessions.clear()
+    session_store.reset_store()
     monkeypatch.setattr(config, "SEARCH_PACING_SECONDS", 0.0)
     monkeypatch.setattr(planner_mod, "get_client", lambda: _client('["a", "b"]'))
     monkeypatch.setattr(refiner_mod, "get_client", lambda: _client('["a2"]'))
@@ -64,7 +65,7 @@ def _wire(monkeypatch):
         ],
     )
     yield
-    sessions.clear()
+    session_store.reset_store()
 
 
 def read_sse(response):
@@ -121,7 +122,7 @@ def test_session_is_dropped_after_the_stream_completes():
         with client.stream("GET", f"/api/research/{session_id}/stream") as r:
             read_sse(r)
 
-        assert session_id not in sessions
+        assert not session_store.get_store().exists(session_id)
         # A second connection to a finished run is a clean 404, not a hang.
         assert client.get(f"/api/research/{session_id}/stream").status_code == 404
 

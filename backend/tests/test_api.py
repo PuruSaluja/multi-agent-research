@@ -5,14 +5,15 @@ from fastapi.testclient import TestClient
 
 import config
 import main
-from main import Session, app, reap_stale_sessions, sessions
+import sessions as session_store
+from main import app
 
 
 @pytest.fixture(autouse=True)
-def _clean_sessions():
-    sessions.clear()
+def _fresh_store():
+    session_store.reset_store()
     yield
-    sessions.clear()
+    session_store.reset_store()
 
 
 @pytest.fixture
@@ -30,13 +31,18 @@ def test_health_reports_model_and_session_count(client):
     assert body["active_sessions"] == 0
 
 
+def test_health_reports_whether_multiple_workers_are_safe(client):
+    # No REDIS_URL in tests, so state is process-local.
+    assert client.get("/api/health").json()["multi_worker_safe"] is False
+
+
 def test_empty_query_rejected(client):
     assert client.post("/api/research", json={"query": "   "}).status_code == 400
 
 
 def test_research_returns_a_session_id(client):
     body = client.post("/api/research", json={"query": "why"}).json()
-    assert body["session_id"] in sessions
+    assert session_store.get_store().exists(body["session_id"])
 
 
 def test_unknown_session_stream_is_404(client):
@@ -47,18 +53,18 @@ def test_backpressure_returns_429(client, monkeypatch):
     monkeypatch.setattr(config, "MAX_ACTIVE_SESSIONS", 2)
     assert client.post("/api/research", json={"query": "a"}).status_code == 200
     assert client.post("/api/research", json={"query": "b"}).status_code == 200
-    r = client.post("/api/research", json={"query": "c"})
-    assert r.status_code == 429
+    assert client.post("/api/research", json={"query": "c"}).status_code == 429
 
 
 def test_abandoned_sessions_are_reaped(monkeypatch):
     """A POST whose client never opens the stream must not leak a queue."""
     monkeypatch.setattr(config, "SESSION_TTL_SECONDS", 60)
+    store = session_store.InMemorySessionStore()
     now = time.monotonic()
-    sessions["fresh"] = Session(created_at=now)
-    sessions["stale"] = Session(created_at=now - 3600)
+    store.create("fresh")
+    store.create("stale")
+    store._created["stale"] = now - 3600
 
-    removed = reap_stale_sessions(now=now)
-
-    assert removed == 1
-    assert "fresh" in sessions and "stale" not in sessions
+    assert store.reap(now=now) == 1
+    assert store.exists("fresh")
+    assert not store.exists("stale")

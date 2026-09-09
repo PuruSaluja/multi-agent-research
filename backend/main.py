@@ -1,58 +1,35 @@
 import asyncio
 import json
-import queue
+import logging
 import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 
 load_dotenv()
 
 # Imported after load_dotenv() so API keys are present when clients are built.
 import config  # noqa: E402
+import sessions as session_store  # noqa: E402
 from agents.writer import collect_sources  # noqa: E402
+from auth import (  # noqa: E402
+    create_token,
+    current_user,
+    current_user_optional,
+    hash_password,
+    verify_password,
+)
+from db import ResearchRun, User, get_session, init_db  # noqa: E402
 from events import set_emitter  # noqa: E402
 from graph import compiled_graph  # noqa: E402
-
-
-@dataclass
-class Session:
-    """One research run's event queue.
-
-    In-process, so the app must run with a single worker: with more than one, a
-    POST handled by worker A creates a session worker B cannot find when the
-    browser opens the stream. Redis is the fix if that ever changes.
-    """
-
-    queue: "queue.Queue" = field(default_factory=queue.Queue)
-    created_at: float = field(default_factory=time.monotonic)
-
-
-sessions: dict[str, Session] = {}
-_sessions_lock = threading.Lock()
-
-
-def reap_stale_sessions(now: float | None = None) -> int:
-    """Drop sessions whose client never connected, so abandoned POSTs do not
-    leak a queue for the life of the process. Returns the number removed."""
-    now = time.monotonic() if now is None else now
-    with _sessions_lock:
-        stale = [
-            sid
-            for sid, s in sessions.items()
-            if now - s.created_at > config.SESSION_TTL_SECONDS
-        ]
-        for sid in stale:
-            sessions.pop(sid, None)
-    return len(stale)
 
 
 class ResearchRequest(BaseModel):
@@ -63,12 +40,30 @@ class ResearchResponse(BaseModel):
     session_id: str
 
 
+class Credentials(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    email: str
+
+
+logger = logging.getLogger("uvicorn.error")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    for problem in config.check_auth_secret():
+        logger.warning("SECURITY: %s", problem)
+    init_db()
+
     async def sweeper():
         while True:
             await asyncio.sleep(config.SESSION_SWEEP_INTERVAL_SECONDS)
-            reap_stale_sessions()
+            await asyncio.to_thread(session_store.get_store().reap)
 
     task = asyncio.create_task(sweeper())
     try:
@@ -79,7 +74,6 @@ async def lifespan(app: FastAPI):
             await task
         except asyncio.CancelledError:
             pass
-        sessions.clear()
 
 
 app = FastAPI(title="Multi-Agent Research API", lifespan=lifespan)
@@ -94,13 +88,29 @@ app.add_middleware(
 )
 
 
-def _run_graph_streaming(session_id: str, query: str) -> None:
+def _save_run(user_id: int, query: str, payload: dict, duration: float) -> None:
+    """Persist a finished run. A storage failure must not break the stream."""
+    try:
+        with get_session() as session:
+            session.add(
+                ResearchRun(
+                    user_id=user_id,
+                    query=query,
+                    final_report=payload.get("final_report", ""),
+                    sub_tasks_json=json.dumps(payload.get("sub_tasks", [])),
+                    sources_json=json.dumps(payload.get("sources", [])),
+                    duration_seconds=duration,
+                )
+            )
+            session.commit()
+    except Exception:
+        pass
+
+
+def _run_graph_streaming(session_id: str, query: str, user_id: Optional[int]) -> None:
     """Run the graph on a worker thread, pushing events onto the session queue."""
-    with _sessions_lock:
-        session = sessions.get(session_id)
-    if session is None:
-        return
-    q = session.queue
+    store = session_store.get_store()
+    started = time.monotonic()
 
     accumulated_state: dict = {
         "query": query,
@@ -115,8 +125,8 @@ def _run_graph_streaming(session_id: str, query: str) -> None:
         "retry_count": 0,
     }
 
-    # Lets the Writer stream chunks straight onto this queue.
-    set_emitter(lambda event_type, data: q.put((event_type, data)))
+    # Lets the Analyst and Writer stream chunks straight onto this queue.
+    set_emitter(lambda event_type, data: store.push(session_id, event_type, data))
 
     try:
         for chunk in compiled_graph.stream(accumulated_state, stream_mode="updates"):
@@ -128,42 +138,47 @@ def _run_graph_streaming(session_id: str, query: str) -> None:
                         accumulated_state[k] = v
 
                 if accumulated_state.get("error"):
-                    q.put(("error", {"message": accumulated_state["error"]}))
+                    store.push(session_id, "error", {"message": accumulated_state["error"]})
                     return
 
-        q.put((
-            "complete",
-            {
-                "final_report": accumulated_state.get("final_report", ""),
-                "sub_tasks": accumulated_state.get("sub_tasks", []),
-                "sources": collect_sources(accumulated_state.get("search_results", {})),
-                "unanswered_tasks": accumulated_state.get("unanswered_tasks", []),
-            },
-        ))
+        payload = {
+            "final_report": accumulated_state.get("final_report", ""),
+            "sub_tasks": accumulated_state.get("sub_tasks", []),
+            "sources": collect_sources(accumulated_state.get("search_results", {})),
+            "unanswered_tasks": accumulated_state.get("unanswered_tasks", []),
+        }
+        duration = time.monotonic() - started
+        if user_id is not None and payload["final_report"]:
+            _save_run(user_id, query, payload, duration)
+        payload["saved"] = user_id is not None and bool(payload["final_report"])
+        store.push(session_id, "complete", payload)
     except Exception as exc:  # noqa: BLE001 - last resort, must reach the client
-        q.put(("error", {"message": str(exc)}))
+        store.push(session_id, "error", {"message": str(exc)})
     finally:
         set_emitter(None)
 
 
 @app.post("/api/research", response_model=ResearchResponse)
-async def start_research(request: ResearchRequest):
+async def start_research(
+    request: ResearchRequest, user: Optional[User] = Depends(current_user_optional)
+):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-    reap_stale_sessions()
-    with _sessions_lock:
-        if len(sessions) >= config.MAX_ACTIVE_SESSIONS:
-            raise HTTPException(
-                status_code=429,
-                detail="Too many research sessions in flight. Try again shortly.",
-            )
-        session_id = str(uuid.uuid4())
-        sessions[session_id] = Session()
+    store = session_store.get_store()
+    await asyncio.to_thread(store.reap)
+    if store.count() >= config.MAX_ACTIVE_SESSIONS:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many research sessions in flight. Try again shortly.",
+        )
+
+    session_id = str(uuid.uuid4())
+    store.create(session_id)
 
     threading.Thread(
         target=_run_graph_streaming,
-        args=(session_id, request.query.strip()),
+        args=(session_id, request.query.strip(), user.id if user else None),
         daemon=True,
     ).start()
 
@@ -172,19 +187,15 @@ async def start_research(request: ResearchRequest):
 
 @app.get("/api/research/{session_id}/stream")
 async def stream_research(session_id: str):
-    with _sessions_lock:
-        session = sessions.get(session_id)
-    if session is None:
+    store = session_store.get_store()
+    if not store.exists(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
-
-    q = session.queue
 
     async def event_generator():
         start = asyncio.get_running_loop().time()
         try:
             while True:
-                elapsed = asyncio.get_running_loop().time() - start
-                if elapsed > config.RESEARCH_TIMEOUT_SECONDS:
+                if asyncio.get_running_loop().time() - start > config.RESEARCH_TIMEOUT_SECONDS:
                     yield _sse_event(
                         "error",
                         {
@@ -196,19 +207,18 @@ async def stream_research(session_id: str):
                     )
                     break
 
-                try:
-                    event_type, data = await asyncio.to_thread(q.get, True, 1.0)
-                except queue.Empty:
+                item = await asyncio.to_thread(store.pop, session_id, 1.0)
+                if item is None:
                     yield ": keepalive\n\n"
                     continue
 
+                event_type, data = item
                 yield _sse_event(event_type, data)
 
                 if event_type in ("complete", "error"):
                     break
         finally:
-            with _sessions_lock:
-                sessions.pop(session_id, None)
+            store.delete(session_id)
 
     return StreamingResponse(
         event_generator(),
@@ -221,15 +231,80 @@ async def stream_research(session_id: str):
     )
 
 
+@app.post("/api/auth/register", response_model=TokenResponse, status_code=201)
+async def register(creds: Credentials):
+    email = creds.email.lower()
+    with get_session() as session:
+        if session.query(User).filter(User.email == email).first():
+            raise HTTPException(status_code=409, detail="Email already registered")
+        user = User(email=email, password_hash=hash_password(creds.password))
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return TokenResponse(access_token=create_token(user.id), email=user.email)
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login(creds: Credentials):
+    email = creds.email.lower()
+    with get_session() as session:
+        user = session.query(User).filter(User.email == email).first()
+        # Same message either way, so the response cannot enumerate accounts.
+        if user is None or not verify_password(creds.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        return TokenResponse(access_token=create_token(user.id), email=user.email)
+
+
+@app.get("/api/auth/me")
+async def me(user: User = Depends(current_user)):
+    return {"email": user.email, "created_at": user.created_at.isoformat()}
+
+
+@app.get("/api/history")
+async def list_history(user: User = Depends(current_user), limit: int = 50):
+    with get_session() as session:
+        runs = (
+            session.query(ResearchRun)
+            .filter(ResearchRun.user_id == user.id)
+            .order_by(ResearchRun.created_at.desc())
+            .limit(min(limit, 200))
+            .all()
+        )
+        return {"runs": [r.summary() for r in runs]}
+
+
+@app.get("/api/history/{run_id}")
+async def get_history_item(run_id: int, user: User = Depends(current_user)):
+    with get_session() as session:
+        run = session.get(ResearchRun, run_id)
+        # 404 rather than 403 for someone else's run, so ids cannot be probed.
+        if run is None or run.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Not found")
+        return run.detail()
+
+
+@app.delete("/api/history/{run_id}", status_code=204)
+async def delete_history_item(run_id: int, user: User = Depends(current_user)):
+    with get_session() as session:
+        run = session.get(ResearchRun, run_id)
+        if run is None or run.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Not found")
+        session.delete(run)
+        session.commit()
+
+
 def _sse_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
 @app.get("/api/health")
 async def health():
+    store = session_store.get_store()
     return {
         "status": "ok",
         "model": config.ANTHROPIC_MODEL,
-        "active_sessions": len(sessions),
+        "active_sessions": store.count(),
+        "shared_state": session_store.is_shared(),
+        "multi_worker_safe": session_store.is_shared(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

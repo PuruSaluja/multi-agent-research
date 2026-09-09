@@ -12,9 +12,11 @@ Build a full-stack AI research assistant that uses multiple specialized agents t
 - Deployable via Docker / Render + Vercel
 
 ## Out of Scope (v1)
-- User authentication
-- Persistent conversation history
 - PDF/document upload
+
+Originally also out of scope, both since built (ADR-007):
+- ~~User authentication~~
+- ~~Persistent conversation history~~
 - Horizontal scaling — session state is in-process, so the API runs one worker
 
 ## Success Criteria

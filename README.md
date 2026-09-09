@@ -133,6 +133,31 @@ see [.env.example](.env.example) for the full list.
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Hard cap on a single run |
 | `MAX_RESEARCH_RETRIES` | `1` | Refine/re-search rounds allowed |
 | `MAX_ACTIVE_SESSIONS` | `50` | Backpressure; further requests get a 429 |
+| `REDIS_URL` | unset | Shares session state and the search cache. Required before running more than one worker |
+| `WEB_CONCURRENCY` | `1` | uvicorn workers. Only raise this with `REDIS_URL` set |
+| `DATABASE_URL` | `sqlite:///./data/app.db` | Accounts and saved history. Point at Postgres for multi-instance |
+| `AUTH_SECRET` | dev default | Signs login tokens. **Must be set to a random value in production** |
+| `SEARCH_CACHE_TTL_SECONDS` | `21600` | How long search results are reused. `0` disables |
+| `SEARCH_CONCURRENCY` | `5` | Sub-question searches run in parallel up to this many |
+
+### Accounts and history
+
+Research works signed out. Signing in saves each run and makes it re-openable
+from the History panel. Passwords are hashed with Argon2 and never stored or
+logged in plaintext.
+
+`AUTH_SECRET` signs the login tokens, so anyone holding it can forge a token
+for any account. The built-in default is for local development only — the app
+warns loudly at startup if it is still in use, and `render.yaml` has Render
+generate one per deployment.
+
+### Running more than one worker
+
+Session state is per-process by default, so a run started on one worker cannot
+be streamed from another. Set `REDIS_URL` and both the session queues and the
+search cache move to Redis, which makes `WEB_CONCURRENCY` above 1 safe.
+`GET /api/health` reports `multi_worker_safe` so you can check rather than
+assume.
 
 ## Getting API Keys
 

@@ -52,10 +52,39 @@
 
 ## ADR-005: Keep session state in process, and run one worker
 
-**Status**: Accepted, with a known ceiling
+**Status**: Superseded by ADR-006
 
 **Context**: A research run is started by `POST /api/research` and consumed by a later `GET .../stream`. The two requests need to share a queue.
 
 **Decision**: Hold session queues in a process-local dict, and run uvicorn with `--workers 1`. A background sweeper drops sessions whose client never connected, and `MAX_ACTIVE_SESSIONS` applies backpressure.
 
 **Consequences**: Simple, no extra infrastructure, and correct for a single-instance demo. It does not survive a restart and cannot scale horizontally — with two workers, a POST handled by worker A creates a session worker B cannot find. Redis is the migration path if this ever needs more than one instance. This constraint is recorded in the Dockerfile, the README, and the `Session` docstring so it is not rediscovered by accident.
+
+
+---
+
+## ADR-006: Optional Redis for session state and the search cache
+
+**Status**: Accepted
+
+**Context**: ADR-005 accepted a single worker because session queues lived in a process-local dict. That ceiling was reached: two workers meant a POST handled by worker A created a session worker B could not find. Separately, repeated sub-questions were re-fetched from Tavily on every run.
+
+**Decision**: Put both behind a `SessionStore` interface and a small cache module, each with two backends. Without `REDIS_URL` they use process memory and behave exactly as before. With it, queues become Redis lists and cached results become keyed entries with a TTL, so any worker can serve any session.
+
+Redis is optional rather than required because a reviewer cloning this repo should not need to run infrastructure to see it work.
+
+**Consequences**: `WEB_CONCURRENCY` above 1 is now safe, but only when Redis is configured — so `/api/health` reports `multi_worker_safe`, making the difference observable rather than assumed. Two code paths exist for both concerns, and both are tested. Cache staleness is bounded by `SEARCH_CACHE_TTL_SECONDS` (six hours by default), which suits research questions where the answer moves slowly; it is the wrong default for breaking news.
+
+---
+
+## ADR-007: Accounts and history in SQL, with anonymous use preserved
+
+**Status**: Accepted
+
+**Context**: The v1 plan put authentication and history out of scope. Both were later requested. The question was whether research should require an account.
+
+**Decision**: Email and password with Argon2 hashing, bearer tokens signed with HS256, and runs saved per user. Research works signed out; history is the reason to sign in, not a gate in front of the product. Storage is SQLAlchemy against SQLite by default, so nothing needs configuring locally, with `DATABASE_URL` pointing at Postgres for a real deployment.
+
+Argon2 rather than bcrypt because it has no password length ceiling and is the current password-hashing competition winner. Tokens are stateless, so signing out is a client-side discard rather than server revocation.
+
+**Consequences**: Anonymous runs are not recoverable, which is the honest trade for not forcing signup. Stateless tokens cannot be revoked before they expire, so `AUTH_TOKEN_TTL_SECONDS` defaults to 14 days rather than something longer. `AUTH_SECRET` becomes security-critical: anyone holding it can forge a token for any account, so the app checks it at startup and refuses to be quiet about the built-in default, and `render.yaml` has the platform generate one. SQLite does not scale past a single host, which is why `DATABASE_URL` exists.

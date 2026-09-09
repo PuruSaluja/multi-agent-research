@@ -1,4 +1,4 @@
-import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import config
@@ -20,6 +20,11 @@ def researcher_node(state: ResearchState) -> dict:
     """Search each outstanding sub-task: every one on the first pass, only the
     refiner's rewrites afterwards.
 
+    Searches run concurrently, but results are logged from this thread in the
+    order tasks were planned. Emitting from the pool threads would be a no-op,
+    since the emitter is a ContextVar and pool threads start with a fresh
+    context.
+
     Tracks "found nothing" separately from "could not run", and errors only if
     every request failed.
     """
@@ -30,22 +35,29 @@ def researcher_node(state: ResearchState) -> dict:
     unanswered: list[str] = []
     failures: list[str] = []
 
-    for task in pending:
-        try:
-            results = search_web(task)
-        except SearchError as exc:
-            failures.append(task)
-            unanswered.append(task)
-            emit_log(logs, _log("Researcher", "Search failed", f"{task} - {exc}"))
-        else:
-            if results:
-                search_results[task] = results
-                emit_log(logs, _log("Researcher", "Searched", task))
-            else:
-                unanswered.append(task)
-                emit_log(logs, _log("Researcher", "No results found", task))
+    if pending:
+        workers = max(1, min(config.SEARCH_CONCURRENCY, len(pending)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {task: pool.submit(search_web, task) for task in pending}
 
-        time.sleep(config.SEARCH_PACING_SECONDS)
+            for task in pending:
+                try:
+                    results = futures[task].result()
+                except SearchError as exc:
+                    failures.append(task)
+                    unanswered.append(task)
+                    emit_log(logs, _log("Researcher", "Search failed", f"{task} - {exc}"))
+                except Exception as exc:  # noqa: BLE001 - a pool failure is still a failure
+                    failures.append(task)
+                    unanswered.append(task)
+                    emit_log(logs, _log("Researcher", "Search failed", f"{task} - {exc}"))
+                else:
+                    if results:
+                        search_results[task] = results
+                        emit_log(logs, _log("Researcher", "Searched", task))
+                    else:
+                        unanswered.append(task)
+                        emit_log(logs, _log("Researcher", "No results found", task))
 
     if pending and len(failures) == len(pending):
         return {
