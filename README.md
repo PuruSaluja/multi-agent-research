@@ -1,25 +1,25 @@
 # Multi-Agent Research Assistant
 
-A full-stack web application where specialized AI agents collaborate in real-time
-to answer complex research questions. Built as a portfolio project for AI/ML
-Engineer and Agentic AI roles.
+Ask a research question and four specialized AI agents work through it together:
+one plans, one searches the web, one synthesizes, one writes. You watch them work
+in real time and get back a sourced Markdown report with citations.
 
-## Architecture
+Built as a portfolio project for AI/ML Engineer and Agentic AI roles.
 
 ```
-User Question
-     |
-     v
+                     "What is the Doppler effect?"
+                                  |
+                                  v
 +---------------------------------------------------------------------------+
-|                       LangGraph State Machine                             |
+|                         LangGraph State Machine                           |
 |                                                                           |
 |  +---------+    +------------+    +---------+    +--------+               |
 |  | Planner |--->| Researcher |--->| Analyst |--->| Writer |               |
 |  |         |    |            |    |         |    |        |               |
 |  | Breaks  |    | Tavily     |    |Synthesize   | Streams |               |
-|  | question|    | search per |    | findings|   | the MD  |               |
-|  | into 3-5|    | sub-task   |    | & gaps  |   | report  |               |
-|  |sub-tasks|    |            |    |         |   |         |               |
+|  | question|    | searches,  |    | findings|   | the MD  |               |
+|  | into 3-5|    | run in     |    | & gaps, |   | report  |               |
+|  |sub-tasks|    | parallel   |    | streams |   |         |               |
 |  +---------+    +-----+------+    +---------+   +--------+                |
 |                       |  ^                                                |
 |            thin pass? |  | refined queries                                |
@@ -30,98 +30,128 @@ User Question
 |                                                                           |
 |            error_handler <-- any node that sets state["error"]            |
 +---------------------------------------------------------------------------+
-     |
-     v FastAPI SSE stream
-     |
-     v
-React UI -- live agent timeline + the report streaming in token by token
+                                  |
+                                  v  FastAPI SSE stream
+                                  |
+                    React UI: live agent timeline,
+                    analysis and report streaming in
 ```
 
-### Agent Roles
+### Agent roles
 
 | Agent | Role | Backed by |
 |---|---|---|
 | **Planner** | Decomposes the query into 3-5 searchable sub-questions | Claude Sonnet 4.6 |
-| **Researcher** | Tavily search per sub-question, top 3 results each | Tavily API |
+| **Researcher** | Tavily search per sub-question, run in parallel, top 3 results each | Tavily API |
 | **Refiner** | Rewrites sub-questions that returned nothing, so they can be retried | Claude Sonnet 4.6 |
 | **Analyst** | Synthesizes results, notes contradictions and unevidenced gaps | Claude Sonnet 4.6 |
 | **Writer** | Streams a structured Markdown report with citations | Claude Sonnet 4.6 |
 
 The Researcher to Refiner to Researcher edge is conditional: it only fires when a
-pass leaves most sub-questions unanswered and retry budget remains. See
+pass leaves most sub-questions unanswered and retry budget remains. That
+branching is the reason this is a state graph rather than a linear chain, and it
+is why the Refiner is not simply another step in the sequence. See
 [ADR-001](docs/architecture-decisions.md).
 
-## Tech Stack
+## What it does
+
+- **Live progress.** Each agent reports as it finishes, and both the analysis and
+  the report stream in token by token. First visible output lands around 16
+  seconds into a roughly 75-second run.
+- **Real sources.** Every claim traces to a URL the Researcher actually fetched.
+  Typically 13-15 sources per report.
+- **Honest failure.** A search that ran and found nothing is treated differently
+  from a search that could not run at all. The Analyst refuses to write from zero
+  sources rather than inventing a confident answer.
+- **Accounts and history**, optional. Research works signed out; signing in saves
+  each run so you can reopen it.
+- **Caching and parallelism.** Sub-question searches run concurrently and results
+  are reused for six hours, so a repeated question costs almost nothing.
+
+## Tech stack
 
 | Layer | Technology |
 |---|---|
 | Agent orchestration | LangGraph |
 | LLM | Anthropic Claude Sonnet 4.6 (`claude-sonnet-4-6`) |
 | Web search | Tavily API |
-| Backend | FastAPI + SSE streaming |
-| Frontend | React 18 + Vite + Tailwind CSS |
-| Containerization | Docker + docker-compose |
-| Tests | pytest |
+| Backend | FastAPI, SSE streaming |
+| Frontend | React 18, Vite, Tailwind CSS |
+| Accounts | SQLAlchemy, Argon2, JWT |
+| Shared state | Redis (optional) |
+| Containerization | Docker, docker-compose |
+| Tests | pytest, GitHub Actions |
 
-## Prerequisites
+## Quick start
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes docker-compose)
-- Anthropic API key -- [console.anthropic.com](https://console.anthropic.com)
-- Tavily API key (free tier) -- [tavily.com](https://tavily.com)
+You need [Docker Desktop](https://www.docker.com/products/docker-desktop/), an
+Anthropic API key, and a Tavily API key (free tier is 1,000 searches/month).
 
-> Alternatively, without Docker: Python 3.11+ and Node 18+
-
-## Quick Start
-
-### 1. Clone the repo
 ```bash
 git clone https://github.com/PuruSaluja/multi-agent-research.git
 cd multi-agent-research
-```
-
-### 2. Add API keys
-```bash
 cp .env.example .env
 ```
 
-Edit `.env` and fill in your keys:
+Fill in the two keys in `.env`:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 TAVILY_API_KEY=tvly-...
 ```
 
-### 3. Run with Docker
+Then:
+
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-Open **http://localhost:5173** in your browser.
+Open **http://localhost:5173**. That brings up Redis, the API on port 8000, and
+the frontend on 5173.
 
-### Running without Docker
+<details>
+<summary>Running without Docker</summary>
 
-**Backend:**
+**Backend** (Python 3.11+):
+
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000 --workers 1
+uvicorn main:app --reload --port 8000
 ```
 
-On Windows the activate step is `.venv\Scripts\activate`.
+**Frontend** (Node 18+):
 
-**Frontend:**
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
+Without Redis the app keeps session state in process, which is fine for one
+worker. See *Running more than one worker* below.
+</details>
+
+### Getting the API keys
+
+- **Anthropic** -- [console.anthropic.com](https://console.anthropic.com), then
+  API Keys, then Create Key. Copy the `sk-ant-...` value.
+- **Tavily** -- [app.tavily.com](https://app.tavily.com), then Dashboard, then
+  API Keys. Copy the `tvly-...` value.
+
+### Example queries
+
+- *"What are the most promising applications of large language models in healthcare?"*
+- *"What is the current state of fusion energy research?"*
+- *"What are the most effective evidence-based treatments for insomnia?"*
+- *"How do leading AI labs differ in their approach to AI safety?"*
+
 ## Configuration
 
 Only the two API keys are required. Everything else has a working default --
-see [.env.example](.env.example) for the full list.
+see [.env.example](.env.example).
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -133,121 +163,83 @@ see [.env.example](.env.example) for the full list.
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Hard cap on a single run |
 | `MAX_RESEARCH_RETRIES` | `1` | Refine/re-search rounds allowed |
 | `MAX_ACTIVE_SESSIONS` | `50` | Backpressure; further requests get a 429 |
-| `REDIS_URL` | unset | Shares session state and the search cache. Required before running more than one worker |
-| `WEB_CONCURRENCY` | `1` | uvicorn workers. Only raise this with `REDIS_URL` set |
-| `DATABASE_URL` | `sqlite:///./data/app.db` | Accounts and saved history. Point at Postgres for multi-instance |
-| `AUTH_SECRET` | dev default | Signs login tokens. **Must be set to a random value in production** |
-| `SEARCH_CACHE_TTL_SECONDS` | `21600` | How long search results are reused. `0` disables |
 | `SEARCH_CONCURRENCY` | `5` | Sub-question searches run in parallel up to this many |
+| `SEARCH_CACHE_TTL_SECONDS` | `21600` | How long search results are reused. `0` disables |
+| `REDIS_URL` | unset | Shares session state and the search cache |
+| `WEB_CONCURRENCY` | `1` | uvicorn workers. Only raise this with `REDIS_URL` set |
+| `DATABASE_URL` | `sqlite:///./data/app.db` | Accounts and saved history |
+| `AUTH_SECRET` | dev default | Signs login tokens. **Must be set in production** |
 
 ### Accounts and history
 
 Research works signed out. Signing in saves each run and makes it re-openable
 from the History panel. Passwords are hashed with Argon2 and never stored or
-logged in plaintext.
+logged in plaintext. History is scoped per user, and a request for someone
+else's run returns 404 rather than 403, so run ids cannot be probed.
 
-`AUTH_SECRET` signs the login tokens, so anyone holding it can forge a token
-for any account. The built-in default is for local development only — the app
-warns loudly at startup if it is still in use, and `render.yaml` has Render
-generate one per deployment.
+`AUTH_SECRET` signs the login tokens, so anyone holding it can forge a token for
+any account. The built-in default is for local development only -- the app warns
+at startup if it is still in use, and `render.yaml` has Render generate one per
+deployment. Generate your own with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
 
 ### Running more than one worker
 
-Session state is per-process by default, so a run started on one worker cannot
-be streamed from another. Set `REDIS_URL` and both the session queues and the
-search cache move to Redis, which makes `WEB_CONCURRENCY` above 1 safe.
-`GET /api/health` reports `multi_worker_safe` so you can check rather than
-assume.
+Session state is per-process by default, so a run started on one worker cannot be
+streamed from another. Set `REDIS_URL` and both the session queues and the search
+cache move to Redis, which makes `WEB_CONCURRENCY` above 1 safe.
+`GET /api/health` reports `multi_worker_safe`, so this is checkable rather than
+assumed. See [ADR-006](docs/architecture-decisions.md).
 
-## Getting API Keys
+## How it works
 
-### Anthropic API Key
-1. Go to [console.anthropic.com](https://console.anthropic.com)
-2. Sign up / log in, then API Keys, then Create Key
-3. Copy the `sk-ant-...` key into `.env`
-
-### Tavily API Key (free tier -- 1,000 searches/month)
-1. Go to [app.tavily.com](https://app.tavily.com)
-2. Sign up, then Dashboard, then API Keys
-3. Copy the `tvly-...` key into `.env`
-
-## Example Queries
-
-- *"What are the most promising applications of large language models in healthcare?"*
-- *"What are the latest breakthroughs in quantum computing?"*
-- *"How do leading AI labs differ in their approach to AI safety?"*
-- *"What are the most effective evidence-based treatments for insomnia?"*
-- *"What is the current state of fusion energy research?"*
-
-## Project Structure
-
-```
-multi-agent-research/
-+-- backend/
-|   +-- main.py               # FastAPI app -- REST + SSE endpoints, session store
-|   +-- graph.py              # LangGraph state machine + routing predicates
-|   +-- config.py             # Every tunable, read from the environment
-|   +-- llm.py                # Shared Anthropic client
-|   +-- events.py             # ContextVar emitter for incremental node output
-|   +-- models.py             # ResearchState TypedDict
-|   +-- agents/
-|   |   +-- planner.py        # Decomposes query into sub-tasks (JSON)
-|   |   +-- researcher.py     # Tavily search per sub-task
-|   |   +-- refiner.py        # Rewrites unproductive sub-questions
-|   |   +-- analyst.py        # Synthesizes search results
-|   |   +-- writer.py         # Streams the final Markdown report
-|   +-- tools/
-|   |   +-- search.py         # Tavily client wrapper, retries, SearchError
-|   +-- tests/                # pytest suite
-|   +-- requirements.txt
-|   +-- Dockerfile
-+-- frontend/
-|   +-- src/
-|   |   +-- App.jsx            # Main app -- state + SSE wiring
-|   |   +-- components/
-|   |       +-- QueryInput.jsx     # Search box + example chips
-|   |       +-- AgentTimeline.jsx  # Pipeline stations + log feed
-|   |       +-- AgentCard.jsx      # Individual log entry
-|   |       +-- FinalReport.jsx    # Markdown report + sources
-|   +-- nginx.conf             # SPA fallback for the production image
-|   +-- Dockerfile             # multi-stage: dev / build / nginx
-+-- scripts/
-|   +-- live_smoke.py          # end-to-end run against the real APIs
-+-- docs/                      # plan, ADRs, dev log
-+-- docker-compose.yml
-+-- render.yaml
-+-- .env.example
-+-- README.md
-```
-
-## How It Works
-
-1. **User submits a query** -- `POST /api/research` returns a `session_id`
-2. **Frontend opens an SSE stream** -- `GET /api/research/{session_id}/stream`
-3. **LangGraph runs in a background thread**, emitting events to a per-session queue
-4. **FastAPI's SSE generator drains the queue**, forwarding `agent_update`,
-   `report_token`, `complete` and `error` events
-5. **Frontend renders** the agent timeline live, then the report as it streams in
+1. **Submit a query** -- `POST /api/research` returns a `session_id`
+2. **Open the stream** -- `GET /api/research/{session_id}/stream`
+3. **LangGraph runs on a worker thread**, pushing events to a per-session queue
+4. **The SSE generator drains that queue**, forwarding events as they arrive
+5. **The frontend renders** the timeline live, then the analysis, then the report
 
 ### Events
 
 | Event | Payload | When |
 |---|---|---|
 | `agent_update` | one log entry | an agent finishes a step |
+| `analysis_token` | `{text}` | each chunk of the Analyst's synthesis |
 | `report_token` | `{text}` | each chunk of the Writer's output |
-| `complete` | report, sub-tasks, sources, unanswered sub-tasks | run finished |
+| `complete` | report, sub-tasks, sources, unanswered sub-tasks, saved flag | run finished |
 | `error` | `{message}` | any node failed, or the run timed out |
 
-A run is capped at `RESEARCH_TIMEOUT_SECONDS`. If any agent fails, the state
-machine routes to `error_handler` and the frontend shows the message.
+Progress goes through the emitter as each step completes rather than being
+batched when a node returns -- otherwise the Researcher's parallel searches would
+all appear at once with the same timestamp.
+
+### API
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST /api/research` | optional | Start a run; saves to history if signed in |
+| `GET /api/research/{id}/stream` | none | SSE event stream for a run |
+| `POST /api/auth/register` | none | Create an account |
+| `POST /api/auth/login` | none | Exchange credentials for a token |
+| `GET /api/auth/me` | required | Current account |
+| `GET /api/history` | required | Your saved runs |
+| `GET /api/history/{id}` | required | One saved run in full |
+| `DELETE /api/history/{id}` | required | Delete a saved run |
+| `GET /api/health` | none | Status, model, worker safety |
 
 ### Failure handling
 
 A search that runs and matches nothing is *not* the same as a search that could
 not run. Tavily calls retry with backoff and then raise `SearchError`; the
-Researcher records which sub-questions are unanswered, and fails the whole run
+Researcher records which sub-questions are unanswered and fails the whole run
 only if every search failed. The Analyst refuses to synthesize when there are no
 sources at all, rather than producing a confident report from nothing.
+
+A run is capped at `RESEARCH_TIMEOUT_SECONDS`. If any agent fails, the state
+machine routes to `error_handler` and the frontend shows the message.
 
 ## Tests
 
@@ -257,17 +249,19 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-40 tests covering search retry and failure semantics, researcher outcome
-handling, graph routing predicates, session lifecycle and backpressure, CORS
-configuration, an integration test that drives the real compiled graph through
-a refine round, and an end-to-end test that runs the actual FastAPI app and
-parses the real SSE stream. External APIs are faked, so the suite needs no keys
-and makes no billable calls.
+71 tests covering search retry, caching and failure semantics; researcher outcome
+handling; graph routing predicates; session store behaviour across both backends;
+CORS configuration; authentication and per-user history isolation; an integration
+test driving the real compiled graph through a refine round; and an end-to-end
+test that runs the actual FastAPI app and parses the real SSE stream. External
+APIs are faked, so the suite needs no keys and makes no billable calls.
+
+GitHub Actions runs the suite and the frontend build on every push.
 
 ### Live smoke test
 
-The suite proves the wiring; it does not prove that a real run produces a good
-report. This script does, against the real Anthropic and Tavily APIs:
+The suite proves the wiring; it does not prove a real run produces a good report.
+This script does, against the real APIs:
 
 ```bash
 python scripts/live_smoke.py
@@ -275,26 +269,40 @@ python scripts/live_smoke.py --query "what is the state of fusion energy researc
 ```
 
 It starts a real uvicorn server, submits a query over HTTP, consumes the SSE
-stream while printing each agent's progress, and then checks that the report
-streamed incrementally, that the streamed chunks reassemble into the final
-report, that sources were cited, and that the Markdown structure asked for is
-present. The report is written to `scripts/last_live_report.md` for review.
+stream while printing each agent's progress with timings, then checks that the
+analysis and report streamed incrementally, that the streamed chunks reassemble
+into the final report, that sources were cited, and that the requested Markdown
+structure is present. The report is written to `scripts/last_live_report.md`.
 
-It makes **real, billable API calls** -- about three Claude calls plus one
-Tavily search per sub-question -- which is why it is deliberately not part of
-`pytest`. Exit codes: 0 success, 1 a check failed, 2 keys not configured.
+It makes **real, billable API calls** -- about three Claude calls plus one Tavily
+search per sub-question -- which is why it is deliberately not part of `pytest`.
+Exit codes: 0 success, 1 a check failed, 2 keys not configured.
+
+## Performance
+
+Measured through the Docker stack against the live APIs:
+
+| | first run | repeat question |
+|---|---|---|
+| 5 sub-question searches | 2.5s | 0.19s (cached) |
+| first visible output | ~16s | ~16s |
+| full run | 83s | 75s |
+| report | ~14,000 chars, 13-15 sources | |
+
+Searches run concurrently; before that they ran one at a time with a pause
+between each, and the search phase alone took about 15 seconds.
 
 ## Deployment
 
-- **Backend**: Deploy to [Render](https://render.com) -- `render.yaml` is
-  included for one-click blueprint deploy. Set `CORS_ALLOW_ORIGINS` to your
-  deployed frontend origin, and `CORS_ALLOW_ORIGIN_REGEX` if you want Vercel
-  preview builds to work too. The service must stay on **one instance and one
-  worker** -- see [ADR-005](docs/architecture-decisions.md).
-- **Frontend**: Deploy to [Vercel](https://vercel.com) --
-  `frontend/vercel.json` is included; set `VITE_API_URL` to your Render backend
-  URL. Note that `VITE_*` variables are inlined at build time, so changing one
-  requires a rebuild.
+- **Backend** -- [Render](https://render.com), via the included `render.yaml`.
+  Set `CORS_ALLOW_ORIGINS` to your deployed frontend origin, and
+  `CORS_ALLOW_ORIGIN_REGEX` if you want Vercel preview builds to work too.
+  `AUTH_SECRET` is generated by Render. For more than one instance, add Redis and
+  point `DATABASE_URL` at Postgres.
+- **Frontend** -- [Vercel](https://vercel.com), via `frontend/vercel.json`. Set
+  `VITE_API_URL` to your Render backend URL. `VITE_*` variables are inlined at
+  build time, so changing one requires a rebuild -- and the value must be a
+  hostname the *browser* can resolve, not an internal service name.
 
 > On Render's free tier the backend spins down after inactivity; the first
 > request after an idle period pays a cold start.
@@ -313,12 +321,53 @@ Tavily search per sub-question -- which is why it is deliberately not part of
 
 ![Research report](screenshots/app-result.png)
 
-## Future Improvements
+## Project structure
 
-- **Agent memory** -- persist prior research sessions so the Analyst can reference earlier findings
-- **More tools** -- add Wikipedia, ArXiv, Google Scholar adapters
-- **User-selectable depth** -- quick (1 search/task) vs deep (5 searches/task)
-- **Export options** -- download as PDF or Notion page
-- **Caching** -- cache Tavily results for identical sub-queries
-- **Auth + history** -- save past research sessions per user
-- **Redis-backed sessions** -- the prerequisite for running more than one worker
+```
+multi-agent-research/
++-- backend/
+|   +-- main.py               # FastAPI app: research, auth, history, SSE
+|   +-- graph.py              # LangGraph state machine + routing predicates
+|   +-- config.py             # Every tunable, read from the environment
+|   +-- sessions.py           # Session queues: in-process or Redis
+|   +-- cache.py              # Search result cache, same two backends
+|   +-- shared.py             # Optional Redis connection
+|   +-- db.py                 # SQLAlchemy models: User, ResearchRun
+|   +-- auth.py               # Argon2 hashing, JWT, current-user dependency
+|   +-- llm.py                # Shared Anthropic client
+|   +-- events.py             # ContextVar emitter for incremental output
+|   +-- models.py             # ResearchState TypedDict
+|   +-- agents/
+|   |   +-- planner.py        # Decomposes query into sub-tasks
+|   |   +-- researcher.py     # Parallel Tavily search per sub-task
+|   |   +-- refiner.py        # Rewrites unproductive sub-questions
+|   |   +-- analyst.py        # Streams the synthesis
+|   |   +-- writer.py         # Streams the final Markdown report
+|   +-- tools/search.py       # Tavily wrapper: retries, caching, SearchError
+|   +-- tests/                # pytest suite
++-- frontend/src/
+|   +-- App.jsx               # State, SSE wiring, auth and history plumbing
+|   +-- api.js                # API client, token storage
+|   +-- components/
+|       +-- QueryInput.jsx        # Search box + example chips
+|       +-- AgentTimeline.jsx     # Pipeline stations + log feed
+|       +-- AgentCard.jsx         # Individual log entry
+|       +-- AnalysisPanel.jsx     # Streaming synthesis, collapses on report
+|       +-- FinalReport.jsx       # Markdown report + sources
+|       +-- AuthPanel.jsx         # Sign in / register
+|       +-- HistoryPanel.jsx      # Saved runs
++-- scripts/live_smoke.py     # End-to-end run against the real APIs
++-- docs/                     # Plan, ADRs, dev log
++-- .github/workflows/ci.yml  # Tests + frontend build
++-- docker-compose.yml        # Redis + backend + frontend
++-- render.yaml
+```
+
+## Future improvements
+
+- **More tools** -- Wikipedia, ArXiv and Google Scholar adapters alongside Tavily
+- **User-selectable depth** -- quick (1 search per sub-task) vs deep (5)
+- **Agent memory** -- let the Analyst reference a user's earlier research
+- **Export** -- download a report as PDF
+- **Rate limiting** -- nothing currently throttles account registration
+- **Streamed sources** -- surface each source as it is found, not only at the end
