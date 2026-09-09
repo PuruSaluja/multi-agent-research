@@ -104,6 +104,27 @@ Output is now near-continuous from 4.2s: planner at 4.2s, searches through
 13.5s, analysis 15.8s to 35.4s, report from 37.4s. The two remaining gaps are
 about two seconds each.
 
+### Docker Compose verified
+Previously untested. Brought the stack up with `docker compose up --build` and
+checked it end to end:
+
+- both images build; containers healthy on 8000 and 5173
+- `/api/health` answers from the host
+- the frontend container serves a bundle with `http://localhost:8000` inlined,
+  not `backend:8000` — the June 13 "networking fix" had it backwards, since
+  Vite bakes the value into browser code where Docker service names do not
+  resolve
+- CORS allows `http://localhost:5173` and omits the header for other origins
+- a full research run through the containers: 92.3s, 11,601-character report,
+  15 sources, streamed text matching the final report byte for byte
+- driven through the real UI in a browser: pipeline advances, log entries
+  arrive as each search finishes, the analysis panel fills then collapses when
+  the report starts, and its toggle reopens it
+
+One thing that only showed up in the browser: the analysis panel was rendering
+raw Markdown (`##`, `**`) directly above the rendered report. It now goes
+through ReactMarkdown like the report does.
+
 ### Next
 - Cache Tavily results for repeated sub-queries to cut API cost
 - Query history panel in the frontend

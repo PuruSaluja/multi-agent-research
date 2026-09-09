@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function AnalysisPanel({ text, streaming, collapsed }) {
   const [open, setOpen] = useState(true);
@@ -53,11 +55,15 @@ export default function AnalysisPanel({ text, streaming, collapsed }) {
       {open && (
         <div
           ref={bodyRef}
-          className="px-5 pb-5 max-h-72 overflow-y-auto text-sm text-gray-700 whitespace-pre-wrap leading-relaxed"
+          className="px-5 pb-5 max-h-72 overflow-y-auto"
         >
-          {text}
+          {/* Rendered, not raw: the Analyst writes Markdown and it sits
+              directly above the rendered report. */}
+          <div className="prose prose-sm max-w-none prose-headings:text-gray-700 prose-p:text-gray-700">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+          </div>
           {streaming && (
-            <span className="inline-block w-1.5 h-4 ml-0.5 -mb-0.5 bg-indigo-400 animate-pulse" />
+            <span className="inline-block w-1.5 h-4 bg-indigo-400 animate-pulse" />
           )}
         </div>
       )}
