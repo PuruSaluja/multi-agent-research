@@ -86,9 +86,25 @@ the emitter (`emit_log`) as each step finishes, so the Researcher reports at
 7.2s, 10.6s, 12.7s, 16.2s and 18.6s rather than in one burst. `main.py` no
 longer diffs the log list; the emitter is the only path for `agent_update`.
 
+### Analyst streaming
+The 40-second wait before anything appeared was the worst part of a run: the
+Planner, five searches and the Analyst all completed before the Writer produced
+the first visible token. The Analyst now streams too, into a collapsible panel
+that folds away once the report starts.
+
+Measured on a live run ("How does CRISPR gene editing actually work?"):
+
+| | before | after |
+|---|---|---|
+| first visible output | 40.1s | 15.8s |
+| first report token | 40.1s | 37.4s |
+| total | 100.4s | 120.4s |
+
+Output is now near-continuous from 4.2s: planner at 4.2s, searches through
+13.5s, analysis 15.8s to 35.4s, report from 37.4s. The two remaining gaps are
+about two seconds each.
+
 ### Next
-- 40 seconds to the first report token is the weak point of the run. Streaming
-  the Analyst's output as well would cut the visible gap roughly in half.
 - Cache Tavily results for repeated sub-queries to cut API cost
 - Query history panel in the frontend
 - Move session state to Redis if this ever needs more than one worker

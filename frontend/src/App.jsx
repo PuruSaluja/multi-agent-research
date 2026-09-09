@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import QueryInput from "./components/QueryInput";
 import AgentTimeline from "./components/AgentTimeline";
+import AnalysisPanel from "./components/AnalysisPanel";
 import FinalReport from "./components/FinalReport";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -9,9 +10,9 @@ const INITIAL_STATE = {
   status: "idle",
   agentLogs: [],
   finalReport: "",
-  // Report text accumulated from `report_token` events while the Writer is
-  // still generating, so the report appears progressively instead of all at
-  // once when the run finishes.
+  // Accumulated from `analysis_token` / `report_token` events so both appear
+  // progressively instead of arriving whole when the run ends.
+  streamingAnalysis: "",
   streamingReport: "",
   subTasks: [],
   sources: [],
@@ -63,6 +64,11 @@ export default function App() {
         agentLogs: [...s.agentLogs, log],
         currentAgent: log.agent,
       }));
+    });
+
+    es.addEventListener("analysis_token", (e) => {
+      const { text } = JSON.parse(e.data);
+      setState((s) => ({ ...s, streamingAnalysis: s.streamingAnalysis + text }));
     });
 
     es.addEventListener("report_token", (e) => {
@@ -164,6 +170,14 @@ export default function App() {
             />
           </section>
 
+          {/* The Analyst's synthesis, streamed then collapsed once the
+              Writer takes over */}
+          <AnalysisPanel
+            text={state.streamingAnalysis}
+            streaming={isRunning && !state.streamingReport}
+            collapsed={Boolean(state.streamingReport) || state.status === "complete"}
+          />
+
           {/* Final report */}
           {state.status === "complete" && state.finalReport && (
             <FinalReport report={state.finalReport} sources={state.sources} />
@@ -174,8 +188,8 @@ export default function App() {
             <FinalReport report={state.streamingReport} sources={[]} streaming />
           )}
 
-          {/* Running spinner, until the report starts arriving */}
-          {isRunning && !state.streamingReport && (
+          {/* Running spinner, until any streamed output starts arriving */}
+          {isRunning && !state.streamingReport && !state.streamingAnalysis && (
             <div className="flex items-center gap-3 text-gray-500 text-sm">
               <span className="inline-block w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
               Agents are working…

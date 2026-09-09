@@ -115,6 +115,8 @@ def run(query: str, timeout: float) -> int:
         complete: dict | None = None
         error: str | None = None
         first_token_at: float | None = None
+        first_output_at: float | None = None
+        analysis: list[str] = []
         event = None
 
         with httpx.stream(
@@ -133,9 +135,16 @@ def run(query: str, timeout: float) -> int:
                             detail = f"{len(detail)} item(s)"
                         log(f"  [{elapsed:6.1f}s] {data['agent']:<11} {data['action']}"
                             + (f" -- {detail}" if detail else ""))
+                    elif event == "analysis_token":
+                        if first_output_at is None:
+                            first_output_at = elapsed
+                            log(f"  [{elapsed:6.1f}s] Analyst     streaming analysis ...")
+                        analysis.append(data["text"])
                     elif event == "report_token":
                         if first_token_at is None:
                             first_token_at = elapsed
+                            if first_output_at is None:
+                                first_output_at = elapsed
                             log(f"  [{elapsed:6.1f}s] Writer      streaming report ...")
                         tokens.append(data["text"])
                     elif event == "complete":
@@ -146,7 +155,10 @@ def run(query: str, timeout: float) -> int:
                         log(f"  [{elapsed:6.1f}s] ERROR: {error}")
 
         total = time.monotonic() - started
-        return report(query, tokens, agent_events, complete, error, first_token_at, total)
+        return report(
+            query, tokens, agent_events, complete, error,
+            first_token_at, first_output_at, analysis, total,
+        )
     finally:
         proc.terminate()
         try:
@@ -155,7 +167,10 @@ def run(query: str, timeout: float) -> int:
             proc.kill()
 
 
-def report(query, tokens, agent_events, complete, error, first_token_at, total) -> int:
+def report(
+    query, tokens, agent_events, complete, error,
+    first_token_at, first_output_at, analysis, total,
+) -> int:
     log("\n" + "=" * 70)
     checks: list[tuple[str, bool, str]] = []
 
@@ -170,6 +185,11 @@ def report(query, tokens, agent_events, complete, error, first_token_at, total) 
         "report streamed incrementally",
         len(tokens) > 1,
         f"{len(tokens)} chunks",
+    ))
+    checks.append((
+        "analysis streamed before the report",
+        len(analysis) > 1,
+        f"{len(analysis)} chunks",
     ))
 
     if complete:
@@ -196,9 +216,11 @@ def report(query, tokens, agent_events, complete, error, first_token_at, total) 
         log(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""))
 
     log("")
+    if first_output_at is not None:
+        log(f"  time to first visible output : {first_output_at:.1f}s")
     if first_token_at is not None:
-        log(f"  time to first report token : {first_token_at:.1f}s")
-    log(f"  total run time             : {total:.1f}s")
+        log(f"  time to first report token   : {first_token_at:.1f}s")
+    log(f"  total run time               : {total:.1f}s")
 
     if complete and complete.get("unanswered_tasks"):
         log(f"  sub-questions with no sources: {complete['unanswered_tasks']}")

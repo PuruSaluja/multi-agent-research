@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import config
-from events import emit_log
+from events import emit, emit_log
 from llm import get_client
 from models import ResearchState
 
@@ -55,13 +55,19 @@ def analyst_node(state: ResearchState) -> dict:
             f"Search results:\n{_format_results(search_results)}{gaps}"
         )
 
-        message = client.messages.create(
+        # Streamed so the UI has something to show during the ~25s the Analyst
+        # runs, rather than a spinner until the Writer starts.
+        chunks: list[str] = []
+        with client.messages.stream(
             model=config.ANTHROPIC_MODEL,
             max_tokens=2048,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
-        )
-        analysis = message.content[0].text.strip()
+        ) as stream:
+            for text in stream.text_stream:
+                chunks.append(text)
+                emit("analysis_token", {"text": text})
+        analysis = "".join(chunks).strip()
 
         emit_log(logs, {
             "agent": "Analyst",

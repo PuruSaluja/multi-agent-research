@@ -66,7 +66,9 @@ def _fast(monkeypatch):
 def _wire_llms(monkeypatch, plan, refined):
     monkeypatch.setattr(planner_mod, "get_client", lambda: _client(plan))
     monkeypatch.setattr(refiner_mod, "get_client", lambda: _client(refined))
-    monkeypatch.setattr(analyst_mod, "get_client", lambda: _client("ANALYSIS"))
+    monkeypatch.setattr(
+        analyst_mod, "get_client", lambda: _client("ANALYSIS", ["ANAL", "YSIS"])
+    )
     monkeypatch.setattr(
         writer_mod, "get_client", lambda: _client("REPORT", ["RE", "PORT"])
     )
@@ -161,6 +163,12 @@ def test_report_tokens_are_emitted_during_a_full_run(monkeypatch):
         final = _run()
     finally:
         events.set_emitter(None)
+
+    kinds = [t for t, _ in seen]
+    # Analysis fills the gap before the Writer starts.
+    assert "analysis_token" in kinds
+    assert kinds.index("analysis_token") < kinds.index("report_token")
+    assert "".join(d["text"] for t, d in seen if t == "analysis_token") == "ANALYSIS"
 
     tokens = [d for t, d in seen if t == "report_token"]
     assert len(tokens) == 2

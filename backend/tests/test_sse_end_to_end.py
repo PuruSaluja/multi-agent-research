@@ -50,7 +50,9 @@ def _wire(monkeypatch):
     monkeypatch.setattr(config, "SEARCH_PACING_SECONDS", 0.0)
     monkeypatch.setattr(planner_mod, "get_client", lambda: _client('["a", "b"]'))
     monkeypatch.setattr(refiner_mod, "get_client", lambda: _client('["a2"]'))
-    monkeypatch.setattr(analyst_mod, "get_client", lambda: _client("ANALYSIS"))
+    monkeypatch.setattr(
+        analyst_mod, "get_client", lambda: _client("ANALYSIS", ["ANAL", "YSIS"])
+    )
     monkeypatch.setattr(
         writer_mod, "get_client", lambda: _client("".join(REPORT_CHUNKS), REPORT_CHUNKS)
     )
@@ -95,11 +97,14 @@ def test_full_run_streams_the_report_over_real_sse():
     # The contract the frontend is written against.
     assert kinds[-1] == "complete"
     assert "agent_update" in kinds
+    assert "analysis_token" in kinds
     assert "report_token" in kinds
     assert "error" not in kinds
 
-    # Progress arrives before the report starts.
-    assert kinds.index("agent_update") < kinds.index("report_token")
+    # Progress, then analysis, then the report: nothing leaves the UI idle.
+    assert kinds.index("agent_update") < kinds.index("analysis_token")
+    assert kinds.index("analysis_token") < kinds.index("report_token")
+    assert "".join(d["text"] for k, d in events if k == "analysis_token") == "ANALYSIS"
 
     # Streamed chunks reassemble into exactly the final report.
     streamed = "".join(d["text"] for k, d in events if k == "report_token")
