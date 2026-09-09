@@ -11,3 +11,8 @@ class ResearchState(TypedDict):
     agent_logs: list[dict]
     current_agent: str
     error: Optional[str]
+    # Sub-questions that produced no usable results on the last pass. The
+    # refiner rewrites these; the researcher retries only these.
+    unanswered_tasks: list[str]
+    # How many refine/re-search rounds have run. Bounds the retry loop.
+    retry_count: int

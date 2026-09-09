@@ -1,19 +1,9 @@
-import os
 from datetime import datetime, timezone
 
-from anthropic import Anthropic
-
+import config
+from events import emit
+from llm import get_client
 from models import ResearchState
-
-_client: Anthropic | None = None
-
-
-def get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        _client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    return _client
-
 
 SYSTEM_PROMPT = (
     "You are a research writer. Given an analysis and the original sources, "
@@ -24,7 +14,8 @@ SYSTEM_PROMPT = (
 )
 
 
-def _collect_sources(search_results: dict[str, list]) -> list[dict]:
+def collect_sources(search_results: dict[str, list]) -> list[dict]:
+    """Flatten search results into a de-duplicated source list, order preserved."""
     seen_urls: set[str] = set()
     sources = []
     for results in search_results.values():
@@ -36,14 +27,18 @@ def _collect_sources(search_results: dict[str, list]) -> list[dict]:
 
 
 def writer_node(state: ResearchState) -> dict:
-    client = get_client()
+    """Write the final report, streaming it to the client token by token.
+
+    The report is the longest output in the pipeline, so it is streamed rather
+    than awaited: each chunk is emitted as a ``report_token`` event, and the
+    assembled text is also returned in state for the final ``complete`` event.
+    """
     logs = list(state.get("agent_logs", []))
-    sources = _collect_sources(state.get("search_results", {}))
+    sources = collect_sources(state.get("search_results", {}))
 
     try:
         sources_text = "\n".join(
-            f"[{i+1}] {s['title']} — {s['url']}"
-            for i, s in enumerate(sources)
+            f"[{i + 1}] {s['title']} - {s['url']}" for i, s in enumerate(sources)
         )
         user_message = (
             f"Original question: {state['query']}\n\n"
@@ -51,13 +46,19 @@ def writer_node(state: ResearchState) -> dict:
             f"Available sources:\n{sources_text}"
         )
 
-        message = client.messages.create(
-            model="claude-sonnet-4-6",
+        chunks: list[str] = []
+        client = get_client()
+        with client.messages.stream(
+            model=config.ANTHROPIC_MODEL,
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
-        )
-        final_report = message.content[0].text.strip()
+        ) as stream:
+            for text in stream.text_stream:
+                chunks.append(text)
+                emit("report_token", {"text": text})
+
+        final_report = "".join(chunks).strip()
 
         logs.append({
             "agent": "Writer",
@@ -76,5 +77,5 @@ def writer_node(state: ResearchState) -> dict:
         return {
             "agent_logs": logs,
             "current_agent": "Writer",
-            "error": f"Writer failed: {str(e)}",
+            "error": f"Writer failed: {e}",
         }

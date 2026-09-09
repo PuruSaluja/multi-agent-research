@@ -10,47 +10,58 @@ Engineer and Agentic AI roles.
 User Question
      |
      v
-+-------------------------------------------------------------+
-|                    LangGraph State Machine                  |
-|                                                             |
-|  +----------+    +------------+    +---------+    +------+ |
-|  | Planner  |---►| Researcher |---►| Analyst |---►|Writer| |
-|  |          |    |            |    |         |    |      | |
-|  | Breaks   |    | Tavily web |    |Synthesize    | Write| |
-|  | question |    | search per |    | findings|    | MD   | |
-|  | into 3-5 |    | sub-task   |    | & gaps  |    |report| |
-|  | sub-tasks|    |            |    |         |    |      | |
-|  +----------+    +------------+    +---------+    +------+ |
-|       |               |                |              |    |
-|       +---------------+----------------+--------------+    |
-|                          error_handler (any node)          |
-+-------------------------------------------------------------+
++---------------------------------------------------------------------------+
+|                       LangGraph State Machine                             |
+|                                                                           |
+|  +---------+    +------------+    +---------+    +--------+               |
+|  | Planner |--->| Researcher |--->| Analyst |--->| Writer |               |
+|  |         |    |            |    |         |    |        |               |
+|  | Breaks  |    | Tavily     |    |Synthesize   | Streams |               |
+|  | question|    | search per |    | findings|   | the MD  |               |
+|  | into 3-5|    | sub-task   |    | & gaps  |   | report  |               |
+|  |sub-tasks|    |            |    |         |   |         |               |
+|  +---------+    +-----+------+    +---------+   +--------+                |
+|                       |  ^                                                |
+|            thin pass? |  | refined queries                                |
+|                       v  |                                                |
+|                  +-----------+                                            |
+|                  |  Refiner  |  rewrites sub-questions that found nothing |
+|                  +-----------+  (bounded by MAX_RESEARCH_RETRIES)         |
+|                                                                           |
+|            error_handler <-- any node that sets state["error"]            |
++---------------------------------------------------------------------------+
      |
      v FastAPI SSE stream
      |
      v
-React UI -- real-time agent timeline + final Markdown report
+React UI -- live agent timeline + the report streaming in token by token
 ```
 
 ### Agent Roles
 
-| Agent | Role | LLM |
+| Agent | Role | Backed by |
 |---|---|---|
-| **Planner** | Decomposes the query into 3-5 searchable sub-questions | Claude Sonnet |
-| **Researcher** | Calls Tavily search for each sub-question, collects top 3 results | Tavily API |
-| **Analyst** | Synthesizes all search results, notes contradictions and uncertainty | Claude Sonnet |
-| **Writer** | Produces a structured Markdown report with citations | Claude Sonnet |
+| **Planner** | Decomposes the query into 3-5 searchable sub-questions | Claude Sonnet 4.6 |
+| **Researcher** | Tavily search per sub-question, top 3 results each | Tavily API |
+| **Refiner** | Rewrites sub-questions that returned nothing, so they can be retried | Claude Sonnet 4.6 |
+| **Analyst** | Synthesizes results, notes contradictions and unevidenced gaps | Claude Sonnet 4.6 |
+| **Writer** | Streams a structured Markdown report with citations | Claude Sonnet 4.6 |
+
+The Researcher to Refiner to Researcher edge is conditional: it only fires when a
+pass leaves most sub-questions unanswered and retry budget remains. See
+[ADR-001](docs/architecture-decisions.md).
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Agent orchestration | LangGraph + LangChain |
-| LLM | Anthropic Claude Sonnet |
+| Agent orchestration | LangGraph |
+| LLM | Anthropic Claude Sonnet 4.6 (`claude-sonnet-4-6`) |
 | Web search | Tavily API |
 | Backend | FastAPI + SSE streaming |
 | Frontend | React 18 + Vite + Tailwind CSS |
 | Containerization | Docker + docker-compose |
+| Tests | pytest |
 
 ## Prerequisites
 
@@ -71,9 +82,13 @@ cd multi-agent-research
 ### 2. Add API keys
 ```bash
 cp .env.example .env
-# Edit .env and fill in your keys:
-#   ANTHROPIC_API_KEY=sk-ant-...
-#   TAVILY_API_KEY=tvly-...
+```
+
+Edit `.env` and fill in your keys:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+TAVILY_API_KEY=tvly-...
 ```
 
 ### 3. Run with Docker
@@ -89,10 +104,12 @@ Open **http://localhost:5173** in your browser.
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8000 --workers 1
 ```
+
+On Windows the activate step is `.venv\Scripts\activate`.
 
 **Frontend:**
 ```bash
@@ -101,23 +118,39 @@ npm install
 npm run dev
 ```
 
+## Configuration
+
+Only the two API keys are required. Everything else has a working default --
+see [.env.example](.env.example) for the full list.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | *(required)* | Claude API key |
+| `TAVILY_API_KEY` | *(required)* | Tavily search key |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Model used by every agent |
+| `CORS_ALLOW_ORIGINS` | localhost dev origins | Comma-separated browser origins allowed to call the API |
+| `CORS_ALLOW_ORIGIN_REGEX` | unset | Regex for origins with varying hostnames (Vercel previews) |
+| `RESEARCH_TIMEOUT_SECONDS` | `180` | Hard cap on a single run |
+| `MAX_RESEARCH_RETRIES` | `1` | Refine/re-search rounds allowed |
+| `MAX_ACTIVE_SESSIONS` | `50` | Backpressure; further requests get a 429 |
+
 ## Getting API Keys
 
 ### Anthropic API Key
 1. Go to [console.anthropic.com](https://console.anthropic.com)
-2. Sign up / log in -> API Keys -> Create Key
+2. Sign up / log in, then API Keys, then Create Key
 3. Copy the `sk-ant-...` key into `.env`
 
 ### Tavily API Key (free tier -- 1,000 searches/month)
 1. Go to [app.tavily.com](https://app.tavily.com)
-2. Sign up -> Dashboard -> API Keys
+2. Sign up, then Dashboard, then API Keys
 3. Copy the `tvly-...` key into `.env`
 
 ## Example Queries
 
 - *"What are the most promising applications of large language models in healthcare?"*
 - *"What are the latest breakthroughs in quantum computing?"*
-- *"How does Anthropic's approach to AI safety compare to OpenAI's?"*
+- *"How do leading AI labs differ in their approach to AI safety?"*
 - *"What are the most effective evidence-based treatments for insomnia?"*
 - *"What is the current state of fusion energy research?"*
 
@@ -126,16 +159,21 @@ npm run dev
 ```
 multi-agent-research/
 +-- backend/
-|   +-- main.py               # FastAPI app -- REST + SSE endpoints
-|   +-- graph.py              # LangGraph state machine
+|   +-- main.py               # FastAPI app -- REST + SSE endpoints, session store
+|   +-- graph.py              # LangGraph state machine + routing predicates
+|   +-- config.py             # Every tunable, read from the environment
+|   +-- llm.py                # Shared Anthropic client
+|   +-- events.py             # ContextVar emitter for incremental node output
 |   +-- models.py             # ResearchState TypedDict
 |   +-- agents/
 |   |   +-- planner.py        # Decomposes query into sub-tasks (JSON)
 |   |   +-- researcher.py     # Tavily search per sub-task
+|   |   +-- refiner.py        # Rewrites unproductive sub-questions
 |   |   +-- analyst.py        # Synthesizes search results
-|   |   +-- writer.py         # Produces final Markdown report
+|   |   +-- writer.py         # Streams the final Markdown report
 |   +-- tools/
-|   |   +-- search.py         # Tavily client wrapper
+|   |   +-- search.py         # Tavily client wrapper, retries, SearchError
+|   +-- tests/                # pytest suite
 |   +-- requirements.txt
 |   +-- Dockerfile
 +-- frontend/
@@ -146,9 +184,9 @@ multi-agent-research/
 |   |       +-- AgentTimeline.jsx  # Pipeline stations + log feed
 |   |       +-- AgentCard.jsx      # Individual log entry
 |   |       +-- FinalReport.jsx    # Markdown report + sources
-|   +-- package.json
-|   +-- vite.config.js
-|   +-- Dockerfile
+|   +-- nginx.conf             # SPA fallback for the production image
+|   +-- Dockerfile             # multi-stage: dev / build / nginx
++-- docs/                      # plan, ADRs, dev log
 +-- docker-compose.yml
 +-- render.yaml
 +-- .env.example
@@ -157,19 +195,60 @@ multi-agent-research/
 
 ## How It Works
 
-1. **User submits a query** -> `POST /api/research` -> returns `session_id`
-2. **Frontend opens an SSE stream** -> `GET /api/research/{session_id}/stream`
+1. **User submits a query** -- `POST /api/research` returns a `session_id`
+2. **Frontend opens an SSE stream** -- `GET /api/research/{session_id}/stream`
 3. **LangGraph runs in a background thread**, emitting events to a per-session queue
-4. **FastAPI SSE generator polls the queue** and forwards events as `agent_update` / `complete` / `error`
-5. **Frontend renders** log entries in real-time, then fades in the final Markdown report
+4. **FastAPI's SSE generator drains the queue**, forwarding `agent_update`,
+   `report_token`, `complete` and `error` events
+5. **Frontend renders** the agent timeline live, then the report as it streams in
 
-The entire pipeline runs inside a 180-second timeout. If any agent fails, the
-state machine routes to an `error_handler` node and the frontend shows the error message.
+### Events
+
+| Event | Payload | When |
+|---|---|---|
+| `agent_update` | one log entry | an agent finishes a step |
+| `report_token` | `{text}` | each chunk of the Writer's output |
+| `complete` | report, sub-tasks, sources, unanswered sub-tasks | run finished |
+| `error` | `{message}` | any node failed, or the run timed out |
+
+A run is capped at `RESEARCH_TIMEOUT_SECONDS`. If any agent fails, the state
+machine routes to `error_handler` and the frontend shows the message.
+
+### Failure handling
+
+A search that runs and matches nothing is *not* the same as a search that could
+not run. Tavily calls retry with backoff and then raise `SearchError`; the
+Researcher records which sub-questions are unanswered, and fails the whole run
+only if every search failed. The Analyst refuses to synthesize when there are no
+sources at all, rather than producing a confident report from nothing.
+
+## Tests
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
+37 tests covering search retry and failure semantics, researcher outcome
+handling, graph routing predicates, session lifecycle and backpressure, CORS
+configuration, and an integration test that drives the real compiled graph
+through a refine round. External APIs are faked, so the suite needs no keys.
 
 ## Deployment
 
-- **Backend**: Deploy to [Render](https://render.com) -- `render.yaml` is included for one-click blueprint deploy
-- **Frontend**: Deploy to [Vercel](https://vercel.com) -- `frontend/vercel.json` is included; set `VITE_API_URL` to your Render backend URL
+- **Backend**: Deploy to [Render](https://render.com) -- `render.yaml` is
+  included for one-click blueprint deploy. Set `CORS_ALLOW_ORIGINS` to your
+  deployed frontend origin, and `CORS_ALLOW_ORIGIN_REGEX` if you want Vercel
+  preview builds to work too. The service must stay on **one instance and one
+  worker** -- see [ADR-005](docs/architecture-decisions.md).
+- **Frontend**: Deploy to [Vercel](https://vercel.com) --
+  `frontend/vercel.json` is included; set `VITE_API_URL` to your Render backend
+  URL. Note that `VITE_*` variables are inlined at build time, so changing one
+  requires a rebuild.
+
+> On Render's free tier the backend spins down after inactivity; the first
+> request after an idle period pays a cold start.
 
 ## Screenshots
 
@@ -189,8 +268,8 @@ state machine routes to an `error_handler` node and the frontend shows the error
 
 - **Agent memory** -- persist prior research sessions so the Analyst can reference earlier findings
 - **More tools** -- add Wikipedia, ArXiv, Google Scholar adapters
-- **Streaming LLM output** -- stream token-by-token from Claude for faster perceived response
 - **User-selectable depth** -- quick (1 search/task) vs deep (5 searches/task)
 - **Export options** -- download as PDF or Notion page
 - **Caching** -- cache Tavily results for identical sub-queries
 - **Auth + history** -- save past research sessions per user
+- **Redis-backed sessions** -- the prerequisite for running more than one worker

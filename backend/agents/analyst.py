@@ -1,26 +1,16 @@
-import json
-import os
 from datetime import datetime, timezone
 
-from anthropic import Anthropic
-
+import config
+from llm import get_client
 from models import ResearchState
-
-_client: Anthropic | None = None
-
-
-def get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        _client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    return _client
-
 
 SYSTEM_PROMPT = (
     "You are a research analyst. You have been given a set of web search "
     "results for several sub-questions. Synthesize the key findings, note any "
     "contradictions between sources, identify what is well-supported vs "
-    "uncertain, and summarize the overall picture in 3-4 paragraphs."
+    "uncertain, and summarize the overall picture in 3-4 paragraphs. If some "
+    "sub-questions returned no sources, say plainly which parts of the "
+    "question remain unevidenced rather than filling the gap from memory."
 )
 
 
@@ -37,18 +27,35 @@ def _format_results(search_results: dict[str, list]) -> str:
 
 
 def analyst_node(state: ResearchState) -> dict:
-    client = get_client()
     logs = list(state.get("agent_logs", []))
+    search_results = state.get("search_results", {})
 
+    if not search_results:
+        return {
+            "agent_logs": logs,
+            "current_agent": "Analyst",
+            "error": (
+                "Analyst failed: no search results were gathered, so there is "
+                "nothing to synthesize."
+            ),
+        }
+
+    client = get_client()
     try:
-        context = _format_results(state.get("search_results", {}))
+        unanswered = state.get("unanswered_tasks", [])
+        gaps = (
+            "\n\nSub-questions that returned no sources:\n"
+            + "\n".join(f"- {t}" for t in unanswered)
+            if unanswered
+            else ""
+        )
         user_message = (
             f"Original question: {state['query']}\n\n"
-            f"Search results:\n{context}"
+            f"Search results:\n{_format_results(search_results)}{gaps}"
         )
 
         message = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=config.ANTHROPIC_MODEL,
             max_tokens=2048,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
@@ -58,7 +65,7 @@ def analyst_node(state: ResearchState) -> dict:
         logs.append({
             "agent": "Analyst",
             "action": "Synthesized findings",
-            "detail": f"Analyzed {len(state.get('search_results', {}))} sub-questions",
+            "detail": f"Analyzed {len(search_results)} sub-questions",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
@@ -72,5 +79,5 @@ def analyst_node(state: ResearchState) -> dict:
         return {
             "agent_logs": logs,
             "current_agent": "Analyst",
-            "error": f"Analyst failed: {str(e)}",
+            "error": f"Analyst failed: {e}",
         }

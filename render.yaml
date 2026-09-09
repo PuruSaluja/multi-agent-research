@@ -11,6 +11,13 @@ services:
         sync: false
       - key: TAVILY_API_KEY
         sync: false
+      # Set these to the deployed frontend's origin, otherwise the browser's
+      # requests are rejected by CORS. Exact origin plus a regex for Vercel
+      # preview builds, whose hostname changes per deployment.
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+      - key: CORS_ALLOW_ORIGIN_REGEX
+        sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
     healthCheckPath: /api/health

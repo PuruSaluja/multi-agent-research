@@ -1,20 +1,9 @@
 import json
-import os
 from datetime import datetime, timezone
 
-from anthropic import Anthropic
-
+import config
+from llm import get_client
 from models import ResearchState
-
-_client: Anthropic | None = None
-
-
-def get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        _client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    return _client
-
 
 SYSTEM_PROMPT = (
     "You are a research planner. Given a user's question, break it down into "
@@ -23,27 +12,36 @@ SYSTEM_PROMPT = (
 )
 
 
+def parse_task_list(raw: str) -> list[str]:
+    """Parse a JSON array of strings out of an LLM response.
+
+    Tolerates the model wrapping its answer in a Markdown code fence.
+    """
+    raw = raw.strip()
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        if len(parts) > 1:
+            raw = parts[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+
+    tasks = json.loads(raw)
+    if not isinstance(tasks, list) or not all(isinstance(t, str) for t in tasks):
+        raise ValueError("LLM did not return a JSON array of strings")
+    return tasks
+
+
 def planner_node(state: ResearchState) -> dict:
     client = get_client()
     try:
         message = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=config.ANTHROPIC_MODEL,
             max_tokens=1024,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": state["query"]}],
         )
-        raw = message.content[0].text.strip()
-
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
-
-        sub_tasks = json.loads(raw)
-        if not isinstance(sub_tasks, list):
-            raise ValueError("LLM did not return a JSON array")
+        sub_tasks = parse_task_list(message.content[0].text)
 
         log_entry = {
             "agent": "Planner",
@@ -53,13 +51,15 @@ def planner_node(state: ResearchState) -> dict:
         }
         return {
             "sub_tasks": sub_tasks,
+            "unanswered_tasks": [],
+            "retry_count": 0,
             "agent_logs": state.get("agent_logs", []) + [log_entry],
             "current_agent": "Planner",
             "error": None,
         }
     except Exception as e:
         return {
-            "error": f"Planner failed: {str(e)}",
+            "error": f"Planner failed: {e}",
             "current_agent": "Planner",
             "agent_logs": state.get("agent_logs", []),
         }

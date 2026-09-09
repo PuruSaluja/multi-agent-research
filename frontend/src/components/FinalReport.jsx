@@ -26,7 +26,7 @@ function SourceCard({ source }) {
   );
 }
 
-export default function FinalReport({ report, sources }) {
+export default function FinalReport({ report, sources, streaming = false }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -36,16 +36,23 @@ export default function FinalReport({ report, sources }) {
   }
 
   return (
-    <div className="animate-fade-in">
+    <div className={streaming ? "" : "animate-fade-in"}>
       {/* Report header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Research Report</h2>
-        <button
-          onClick={handleCopy}
-          className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 active:bg-gray-100 transition"
-        >
-          {copied ? "✓ Copied!" : "Copy Markdown"}
-        </button>
+        {streaming ? (
+          <span className="flex items-center gap-2 text-xs font-medium text-indigo-600">
+            <span className="inline-block w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+            Writing…
+          </span>
+        ) : (
+          <button
+            onClick={handleCopy}
+            className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 active:bg-gray-100 transition"
+          >
+            {copied ? "✓ Copied!" : "Copy Markdown"}
+          </button>
+        )}
       </div>
 
       {/* Markdown report */}

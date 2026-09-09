@@ -9,6 +9,10 @@ const INITIAL_STATE = {
   status: "idle",
   agentLogs: [],
   finalReport: "",
+  // Report text accumulated from `report_token` events while the Writer is
+  // still generating, so the report appears progressively instead of all at
+  // once when the run finishes.
+  streamingReport: "",
   subTasks: [],
   sources: [],
   currentAgent: "",
@@ -59,6 +63,11 @@ export default function App() {
         agentLogs: [...s.agentLogs, log],
         currentAgent: log.agent,
       }));
+    });
+
+    es.addEventListener("report_token", (e) => {
+      const { text } = JSON.parse(e.data);
+      setState((s) => ({ ...s, streamingReport: s.streamingReport + text }));
     });
 
     es.addEventListener("complete", (e) => {
@@ -160,8 +169,13 @@ export default function App() {
             <FinalReport report={state.finalReport} sources={state.sources} />
           )}
 
-          {/* Running spinner while no report yet */}
-          {isRunning && (
+          {/* The Writer's output, rendered as it streams in */}
+          {isRunning && state.streamingReport && (
+            <FinalReport report={state.streamingReport} sources={[]} streaming />
+          )}
+
+          {/* Running spinner, until the report starts arriving */}
+          {isRunning && !state.streamingReport && (
             <div className="flex items-center gap-3 text-gray-500 text-sm">
               <span className="inline-block w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
               Agents are working…
