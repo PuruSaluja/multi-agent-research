@@ -41,10 +41,11 @@ const STATIONS = [
 ];
 
 function stationStatus(key, logs, currentAgent) {
-  const seen = logs.some((l) => l.agent === key);
-  if (!seen) return "waiting";
+  // Current wins over log history: the Analyst and Writer stream output long
+  // before they log anything, so keying off logs alone would leave the pipeline
+  // showing nothing active for most of a run.
   if (currentAgent === key) return "active";
-  return "done";
+  return logs.some((l) => l.agent === key) ? "done" : "waiting";
 }
 
 export default function AgentTimeline({ logs, currentAgent, status }) {

@@ -77,14 +77,25 @@ export default function App() {
       }));
     });
 
+    // Streaming output is the earliest signal an agent has started. Its log
+    // entry only lands when it finishes, so without this the pipeline would
+    // still show the previous agent as active while this one is producing text.
     es.addEventListener("analysis_token", (e) => {
       const { text } = JSON.parse(e.data);
-      setState((s) => ({ ...s, streamingAnalysis: s.streamingAnalysis + text }));
+      setState((s) => ({
+        ...s,
+        streamingAnalysis: s.streamingAnalysis + text,
+        currentAgent: "Analyst",
+      }));
     });
 
     es.addEventListener("report_token", (e) => {
       const { text } = JSON.parse(e.data);
-      setState((s) => ({ ...s, streamingReport: s.streamingReport + text }));
+      setState((s) => ({
+        ...s,
+        streamingReport: s.streamingReport + text,
+        currentAgent: "Writer",
+      }));
     });
 
     es.addEventListener("complete", (e) => {

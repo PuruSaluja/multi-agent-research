@@ -44,6 +44,9 @@ services:
       # Baked into the browser bundle, so it must resolve from the host.
       # "backend" only resolves inside the compose network.
       - VITE_API_URL=http://localhost:8000
+      # Docker Desktop bind mounts do not deliver file events; without this,
+      # edits on the host never reach the dev server.
+      - VITE_USE_POLLING=true
     depends_on:
       - backend
     restart: unless-stopped

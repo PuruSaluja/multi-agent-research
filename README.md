@@ -309,17 +309,24 @@ between each, and the search phase alone took about 15 seconds.
 
 ## Screenshots
 
-**Home -- enter any research question:**
+**Ask anything:**
 
 ![Home screen](screenshots/app-home.png)
 
-**Agents working -- live pipeline view:**
+**Agents working.** The pipeline tracks which agent is active, each search is
+logged as it lands, and the Analyst's synthesis streams into a panel that
+collapses once the report starts:
 
 ![Agents running](screenshots/app-running.png)
 
-**Result -- full structured research report with citations:**
+**The report** -- executive summary, sections, inline citations, references:
 
 ![Research report](screenshots/app-result.png)
+
+**Saved history**, for signed-in users. Runs are stored automatically and
+reopen in place:
+
+![History panel](screenshots/app-history.png)
 
 ## Project structure
 

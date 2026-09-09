@@ -160,6 +160,23 @@ Verified end to end through the UI: register, run, saved to history, reopen.
 - The search cache leaked between tests, since every test used the query "q".
   Test isolation, not a product bug, but it hid three real assertions.
 
+### Screenshots regenerated, and two bugs they exposed
+The three screenshots in the README were the originals from June and no longer
+matched the app: no analysis panel, no Refiner, no sign-in header. Recaptured
+with Playwright against the Docker stack, driving real runs.
+
+Capturing them surfaced two things:
+
+- **The pipeline never showed the Analyst or Writer as active.** `currentAgent`
+  only updated when an agent logged, and both log only when they finish, so the
+  timeline sat on Researcher while the analysis streamed. `stationStatus` also
+  returned "waiting" for any agent with no log entries, which would have hidden
+  the active state even after the first fix. Both corrected.
+- **Frontend hot reload was silently broken under compose.** Docker Desktop bind
+  mounts do not deliver filesystem events, so Vite never saw host edits. Only
+  noticed because a fix appeared not to take effect. Polling is now enabled via
+  `VITE_USE_POLLING` in the compose file.
+
 ### Next
 - Stream the Writer's sources as they are collected rather than only at the end
 - Rate-limit registration; there is nothing stopping bulk account creation
