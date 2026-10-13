@@ -10,7 +10,6 @@ from contextlib import contextmanager
 import pytest
 from fastapi.testclient import TestClient
 
-import config
 from agents import analyst as analyst_mod
 from agents import planner as planner_mod
 from agents import refiner as refiner_mod
@@ -48,7 +47,6 @@ def _client(text, chunks=None):
 @pytest.fixture(autouse=True)
 def _wire(monkeypatch):
     session_store.reset_store()
-    monkeypatch.setattr(config, "SEARCH_PACING_SECONDS", 0.0)
     monkeypatch.setattr(planner_mod, "get_client", lambda: _client('["a", "b"]'))
     monkeypatch.setattr(refiner_mod, "get_client", lambda: _client('["a2"]'))
     monkeypatch.setattr(

@@ -1,14 +1,6 @@
-import pytest
-
-import config
 from agents import researcher as researcher_mod
 from agents.researcher import researcher_node
 from tools.search import SearchError
-
-
-@pytest.fixture(autouse=True)
-def _no_pacing(monkeypatch):
-    monkeypatch.setattr(config, "SEARCH_PACING_SECONDS", 0.0)
 
 
 def _state(**over):

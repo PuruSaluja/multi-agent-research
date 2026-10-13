@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 
+import cache
 import config
 from events import emit_log
 from llm import get_client
@@ -34,19 +35,25 @@ def parse_task_list(raw: str) -> list[str]:
 
 
 def planner_node(state: ResearchState) -> dict:
-    client = get_client()
     try:
-        message = client.messages.create(
-            model=config.ANTHROPIC_MODEL,
-            max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": state["query"]}],
-        )
-        sub_tasks = parse_task_list(message.content[0].text)
+        # A repeated question reuses its earlier plan. The search cache is keyed
+        # on sub-question text, so a freshly reworded plan would miss it.
+        sub_tasks = cache.get_plan(state["query"])
+        action = "Reused sub-tasks from a recent run"
+        if sub_tasks is None:
+            message = get_client().messages.create(
+                model=config.ANTHROPIC_MODEL,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": state["query"]}],
+            )
+            sub_tasks = parse_task_list(message.content[0].text)
+            cache.set_plan(state["query"], sub_tasks)
+            action = "Generated sub-tasks"
 
         logs = emit_log(list(state.get("agent_logs", [])), {
             "agent": "Planner",
-            "action": "Generated sub-tasks",
+            "action": action,
             "detail": sub_tasks,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })

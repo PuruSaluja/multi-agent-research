@@ -56,8 +56,8 @@ is why the Refiner is not simply another step in the sequence. See
 ## What it does
 
 - **Live progress.** Each agent reports as it finishes, and both the analysis and
-  the report stream in token by token. First visible output lands around 16
-  seconds into a roughly 75-second run.
+  the report stream in token by token. First visible output arrives within
+  about 8 seconds of a run that takes 70-95 seconds.
 - **Real sources.** Every claim traces to a URL the Researcher actually fetched.
   Typically 13-15 sources per report.
 - **Honest failure.** A search that ran and found nothing is treated differently
@@ -65,8 +65,9 @@ is why the Refiner is not simply another step in the sequence. See
   sources rather than inventing a confident answer.
 - **Accounts and history**, optional. Research works signed out; signing in saves
   each run so you can reopen it.
-- **Caching and parallelism.** Sub-question searches run concurrently and results
-  are reused for six hours, so a repeated question costs almost nothing.
+- **Caching and parallelism.** Sub-question searches run concurrently. A repeated
+  question reuses its research plan and search results for six hours, skipping
+  the planning call and every search.
 
 ## Tech stack
 
@@ -164,11 +165,28 @@ see [.env.example](.env.example).
 | `MAX_RESEARCH_RETRIES` | `1` | Refine/re-search rounds allowed |
 | `MAX_ACTIVE_SESSIONS` | `50` | Backpressure; further requests get a 429 |
 | `SEARCH_CONCURRENCY` | `5` | Sub-question searches run in parallel up to this many |
-| `SEARCH_CACHE_TTL_SECONDS` | `21600` | How long search results are reused. `0` disables |
+| `SEARCH_CACHE_TTL_SECONDS` | `21600` | How long research plans and search results are reused. `0` disables |
 | `REDIS_URL` | unset | Shares session state and the search cache |
 | `WEB_CONCURRENCY` | `1` | uvicorn workers. Only raise this with `REDIS_URL` set |
 | `DATABASE_URL` | `sqlite:///./data/app.db` | Accounts and saved history |
 | `AUTH_SECRET` | dev default | Signs login tokens. **Must be set in production** |
+
+<details>
+<summary>Advanced tuning</summary>
+
+These have sensible defaults and rarely need changing.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SEARCH_MAX_RESULTS` | `3` | Results kept per sub-question |
+| `SEARCH_MAX_ATTEMPTS` | `3` | Tries per search before it counts as failed |
+| `SEARCH_BACKOFF_SECONDS` | `1.0` | Base delay between search retries, growing per attempt |
+| `MIN_COVERAGE_RATIO` | `0.6` | Below this share of answered sub-questions, the Refiner runs |
+| `SEARCH_CACHE_MAX_ENTRIES` | `512` | Size cap for the in-process cache when Redis is not used |
+| `SESSION_TTL_SECONDS` | `600` | How long an unopened run is kept before it is discarded |
+| `SESSION_SWEEP_INTERVAL_SECONDS` | `30` | How often abandoned runs are cleaned up |
+| `AUTH_TOKEN_TTL_SECONDS` | `1209600` | Login lifetime (14 days) |
+</details>
 
 ### Accounts and history
 
@@ -249,7 +267,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-71 tests covering search retry, caching and failure semantics; researcher outcome
+75 tests covering search retry, caching and failure semantics; plan reuse; researcher outcome
 handling; graph routing predicates; session store behaviour across both backends;
 CORS configuration; authentication and per-user history isolation; an integration
 test driving the real compiled graph through a refine round; and an end-to-end
@@ -278,14 +296,20 @@ Exit codes: 0 success, 1 a check failed, 2 keys not configured.
 
 ## Performance
 
-Measured through the Docker stack against the live APIs:
+Measured through the Docker stack against the live APIs, across five fresh runs
+and one repeat:
 
 | | first run | repeat question |
 |---|---|---|
-| 5 sub-question searches | 2.5s | 0.19s (cached) |
-| first visible output | ~16s | ~16s |
-| full run | 83s | 75s |
-| report | ~14,000 chars, 13-15 sources | |
+| planning | ~3s | 0.1s (plan reused) |
+| 5 sub-question searches | 2.3-3.4s | 0.00s (all cached) |
+| first visible output | 5-8s | 1.0s |
+| full run | 72-92s | 93s |
+| report | 12,000-14,000 chars, 12-15 sources | |
+
+A repeat skips planning and searching, but the Analyst and Writer still run,
+and they account for about 85 seconds of every run. So caching saves a Claude
+call and every Tavily search, not wall-clock time.
 
 Searches run concurrently; before that they ran one at a time with a pause
 between each, and the search phase alone took about 15 seconds.
@@ -335,7 +359,7 @@ multi-agent-research/
 |   +-- graph.py              # LangGraph state machine + routing predicates
 |   +-- config.py             # Every tunable, read from the environment
 |   +-- sessions.py           # Session queues: in-process or Redis
-|   +-- cache.py              # Search result cache, same two backends
+|   +-- cache.py              # Plan and search result cache, same two backends
 |   +-- shared.py             # Optional Redis connection
 |   +-- db.py                 # SQLAlchemy models: User, ResearchRun
 |   +-- auth.py               # Argon2 hashing, JWT, current-user dependency
@@ -375,3 +399,7 @@ multi-agent-research/
 - **Export** -- download a report as PDF
 - **Rate limiting** -- nothing currently throttles account registration
 - **Streamed sources** -- surface each source as it is found, not only at the end
+
+## License
+
+[MIT](LICENSE)

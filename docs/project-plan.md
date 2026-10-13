@@ -14,10 +14,10 @@ Build a full-stack AI research assistant that uses multiple specialized agents t
 ## Out of Scope (v1)
 - PDF/document upload
 
-Originally also out of scope, both since built (ADR-007):
-- ~~User authentication~~
-- ~~Persistent conversation history~~
-- Horizontal scaling — session state is in-process, so the API runs one worker
+Originally also out of scope, all since built:
+- ~~User authentication~~ (ADR-007)
+- ~~Persistent conversation history~~ (ADR-007)
+- ~~Horizontal scaling~~ — session state moved to optional Redis (ADR-006)
 
 ## Success Criteria
 - Query returns a sourced, structured answer, bounded by a 180-second timeout
@@ -48,14 +48,19 @@ Originally also out of scope, both since built (ADR-007):
 - [x] Streaming SSE endpoint live
 - [x] React frontend connected to backend
 - [x] Docker Compose running full stack
-- [x] Deployed to Render + Vercel
 - [x] Conditional refine/retry loop for thin research passes
 - [x] Token-level streaming of the final report
 - [x] Test suite covering routing, search failure handling, and session lifecycle
+- [x] Accounts and saved history
+- [x] Redis-backed sessions and caching, so more than one worker is safe
 
 ## Known Limitations
-- Session queues live in process memory. Multiple workers or a restart lose
-  in-flight runs; moving past one worker means moving this to Redis.
+- Not deployed. `render.yaml` and `frontend/vercel.json` are ready, but there is
+  no live instance.
+- A run takes 70-95 seconds, almost all of it the Analyst and Writer. Caching
+  removes planning and search time on a repeat, not this.
 - Synthetic retry bound: one refine round. Deeper research would need a budget
   rather than a fixed count.
-- No auth, no per-user history, no result caching.
+- SQLite by default. More than one instance needs `DATABASE_URL` pointed at
+  Postgres.
+- Nothing rate-limits account registration.

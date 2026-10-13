@@ -58,7 +58,6 @@ INITIAL = {
 
 @pytest.fixture(autouse=True)
 def _fast(monkeypatch):
-    monkeypatch.setattr(config, "SEARCH_PACING_SECONDS", 0.0)
     monkeypatch.setattr(config, "MAX_RESEARCH_RETRIES", 1)
     monkeypatch.setattr(config, "MIN_COVERAGE_RATIO", 0.6)
 

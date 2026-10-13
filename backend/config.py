@@ -11,7 +11,6 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 SEARCH_MAX_RESULTS = int(os.getenv("SEARCH_MAX_RESULTS", "3"))
 SEARCH_MAX_ATTEMPTS = int(os.getenv("SEARCH_MAX_ATTEMPTS", "3"))
 SEARCH_BACKOFF_SECONDS = float(os.getenv("SEARCH_BACKOFF_SECONDS", "1.0"))
-SEARCH_PACING_SECONDS = float(os.getenv("SEARCH_PACING_SECONDS", "0.5"))
 
 # Refine-and-search-again rounds allowed before giving up. 0 disables retries.
 MAX_RESEARCH_RETRIES = int(os.getenv("MAX_RESEARCH_RETRIES", "1"))

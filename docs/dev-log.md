@@ -1,5 +1,37 @@
 # Development Log
 
+## October 13, 2026
+
+A check of the running stack and the GitHub repo turned up three problems.
+
+- **The test suite was writing into the live cache.** Inside compose,
+  `REDIS_URL` points at the real Redis, and the tests stored their fake search
+  results there. A user asking one of the fixture queries would have been served
+  test data for six hours. It also made three cache tests fail inside the
+  container while passing everywhere else. Tests now always run with Redis off.
+- **A repeated question barely used the cache.** The Planner rewords its
+  sub-questions on every call, so the search strings changed and lookups missed;
+  two runs of one question produced nine distinct cache keys out of ten. Plans
+  are now cached too. On a live repeat the planning call is skipped and every
+  search hits: first output at 1.0s instead of 5-8s. Total time is unchanged,
+  since the Analyst and Writer still run, and the README now says so instead of
+  claiming a repeat "costs almost nothing".
+- **The project plan and this log were stale.** Both still listed auth, history
+  and Redis as missing, and the plan claimed a Render + Vercel deployment nobody
+  can point to. Removed that claim; see the correction below.
+
+Also removed `SEARCH_PACING_SECONDS`, unused since searches went parallel, and
+added an MIT licence.
+
+Running the backend directly on this Windows machine now fails: Smart App
+Control blocks the compiled `uuid_utils` module that `langchain-core` depends
+on. Docker and WSL are unaffected. Not a code problem, but it means the suite
+has to run inside the backend container here.
+
+75 tests pass.
+
+---
+
 ## September 9, 2026
 
 An audit of the repo against its own documentation turned up nine places where
@@ -15,6 +47,9 @@ the test suite that would have caught most of them.
 - **"CORS needed explicit origin allowlist for Vercel preview URLs"** — no
   Vercel origin was ever added. `allow_origins` was hardcoded to localhost, so
   a deployed frontend would have been blocked.
+- **"Deployment stable on Render + Vercel"** — unverified. No deployed URL
+  exists anywhere in the repo, and given the CORS setting above, a Vercel
+  frontend could not have called the backend. Treated as not deployed.
 
 ### Fixed
 - **Docker networking.** Commit `3ba4d2e` had changed `VITE_API_URL` from
@@ -180,14 +215,13 @@ Capturing them surfaced two things:
 ### Next
 - Stream the Writer's sources as they are collected rather than only at the end
 - Rate-limit registration; there is nothing stopping bulk account creation
-- Query history panel in the frontend
-- Move session state to Redis if this ever needs more than one worker
+- Deploy to Render + Vercel
 
 ---
 
 ## June 17, 2026
 
-> Two claims in this entry were later found to be inaccurate — see the
+> Three claims in this entry were later found to be inaccurate — see the
 > corrections in the September 9 entry above.
 
 ### Done
