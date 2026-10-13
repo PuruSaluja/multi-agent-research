@@ -374,6 +374,8 @@ multi-agent-research/
 |   |   +-- writer.py         # Streams the final Markdown report
 |   +-- tools/search.py       # Tavily wrapper: retries, caching, SearchError
 |   +-- tests/                # pytest suite
+|   +-- requirements.in       # Direct dependencies -- edit this
+|   +-- requirements.txt      # Every package pinned, generated from .in
 +-- frontend/src/
 |   +-- App.jsx               # State, SSE wiring, auth and history plumbing
 |   +-- api.js                # API client, token storage

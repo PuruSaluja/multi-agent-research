@@ -28,6 +28,13 @@ Control blocks the compiled `uuid_utils` module that `langchain-core` depends
 on. Docker and WSL are unaffected. Not a code problem, but it means the suite
 has to run inside the backend container here.
 
+Dependencies are now locked. `requirements.txt` previously gave minimum
+versions only, so each install pulled whatever was newest that day -- which
+is how `uuid_utils` arrived. It now pins all 63 packages, dependencies of
+dependencies included, to the set the suite passed on, generated from a new
+`requirements.in`. Verified with a clean install in `python:3.11-slim` and a
+Windows dry run, where the `uvloop` platform marker correctly skips it.
+
 75 tests pass.
 
 ---
