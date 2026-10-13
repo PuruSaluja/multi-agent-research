@@ -8,17 +8,24 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 
 @pytest.fixture(autouse=True)
-def _isolate_process_state():
-    """Clear caches and connection memoization between tests.
+def _isolate_process_state(monkeypatch):
+    """Keep every test off real shared state.
 
-    The search cache is module-level, so without this a result cached by one
-    test is served to the next.
+    Inside the compose stack REDIS_URL points at the live Redis, and without
+    this the suite wrote its fake search results into the app's real cache,
+    where they would be served to users for the cache TTL. Tests that need the
+    Redis code path inject a fake client instead.
     """
     import cache
+    import config
+    import sessions
     import shared
 
+    monkeypatch.setattr(config, "REDIS_URL", None)
     cache.clear()
     shared.reset()
+    sessions.reset_store()
     yield
     cache.clear()
     shared.reset()
+    sessions.reset_store()
