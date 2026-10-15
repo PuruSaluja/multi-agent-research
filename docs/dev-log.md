@@ -1,5 +1,22 @@
 # Development Log
 
+## October 15, 2026
+
+- **Accounts would not have survived on Render.** `render.yaml` set no
+  `DATABASE_URL`, so a deploy would have used SQLite on the container's disk,
+  which Render replaces on every restart. The blueprint now provisions Postgres.
+  Checked by simulating a redeploy: with Postgres, an account registered before
+  replacing the app container still logs in; on the old setup it returns 401.
+  Render's `postgresql://` URLs are normalised to the psycopg driver.
+- **Registration is rate-limited**, 5 attempts per IP per hour. `render.yaml`
+  sets `FORWARDED_ALLOW_IPS` so uvicorn sees real client addresses behind
+  Render's proxy rather than putting every user under one shared limit.
+- **CI is back**, now also running `pip check` against the dependency lock.
+
+88 tests pass.
+
+---
+
 ## October 13, 2026
 
 A check of the running stack and the GitHub repo turned up three problems.
