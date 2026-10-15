@@ -61,5 +61,5 @@ Originally also out of scope, all since built:
   removes planning and search time on a repeat, not this.
 - Synthetic retry bound: one refine round. Deeper research would need a budget
   rather than a fixed count.
-- SQLite by default. More than one instance needs `DATABASE_URL` pointed at
-  Postgres.
+- Render's free Postgres tier has usage limits; check Render's current terms
+  before relying on it for anything kept long term.

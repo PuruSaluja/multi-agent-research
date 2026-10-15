@@ -27,6 +27,20 @@ services:
       # proxy and the sign-up rate limit applies to all users at once.
       - key: FORWARDED_ALLOW_IPS
         value: "*"
+      # Accounts and history. Without this the app falls back to SQLite on
+      # Render's ephemeral disk, and every restart deletes all users.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: multi-agent-research-db
+          property: connectionString
       - key: PYTHONUNBUFFERED
         value: "1"
     healthCheckPath: /api/health
+
+databases:
+  - name: multi-agent-research-db
+    plan: free
+    databaseName: research
+    user: research
+    # Reachable only from services in this Render account.
+    ipAllowList: []

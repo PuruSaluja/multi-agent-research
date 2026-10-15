@@ -87,8 +87,21 @@ _engine = None
 _SessionLocal = None
 
 
+def normalize_url(url: str) -> str:
+    """Point bare Postgres URLs at the psycopg driver.
+
+    Render and most hosts hand out ``postgresql://`` (SQLAlchemy would pick
+    psycopg2, which is not installed) or ``postgres://`` (which SQLAlchemy 2
+    rejects outright).
+    """
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 def _make_engine():
-    url = config.DATABASE_URL
+    url = normalize_url(config.DATABASE_URL)
     kwargs: dict = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         # The path is relative to the backend dir; make sure it exists.
