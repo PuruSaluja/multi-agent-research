@@ -170,6 +170,7 @@ see [.env.example](.env.example).
 | `WEB_CONCURRENCY` | `1` | uvicorn workers. Only raise this with `REDIS_URL` set |
 | `DATABASE_URL` | `sqlite:///./data/app.db` | Accounts and saved history |
 | `AUTH_SECRET` | dev default | Signs login tokens. **Must be set in production** |
+| `REGISTER_RATE_LIMIT` | `5` | Sign-up attempts allowed per IP per hour. `0` disables |
 
 <details>
 <summary>Advanced tuning</summary>
@@ -186,6 +187,7 @@ These have sensible defaults and rarely need changing.
 | `SESSION_TTL_SECONDS` | `600` | How long an unopened run is kept before it is discarded |
 | `SESSION_SWEEP_INTERVAL_SECONDS` | `30` | How often abandoned runs are cleaned up |
 | `AUTH_TOKEN_TTL_SECONDS` | `1209600` | Login lifetime (14 days) |
+| `REGISTER_RATE_WINDOW_SECONDS` | `3600` | Window for the sign-up limit |
 </details>
 
 ### Accounts and history
@@ -203,6 +205,12 @@ deployment. Generate your own with:
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
+
+Sign-ups are limited per client IP, counting attempts rather than successes so
+retrying a taken email is throttled too. Behind a reverse proxy the app only
+sees the real client address if uvicorn trusts the proxy, via
+`FORWARDED_ALLOW_IPS`; otherwise every user shares the proxy's address and one
+limit. `render.yaml` sets it, since Render's proxy is the only route in.
 
 ### Running more than one worker
 
@@ -240,7 +248,7 @@ all appear at once with the same timestamp.
 |---|---|---|
 | `POST /api/research` | optional | Start a run; saves to history if signed in |
 | `GET /api/research/{id}/stream` | none | SSE event stream for a run |
-| `POST /api/auth/register` | none | Create an account |
+| `POST /api/auth/register` | none | Create an account; rate-limited per IP |
 | `POST /api/auth/login` | none | Exchange credentials for a token |
 | `GET /api/auth/me` | required | Current account |
 | `GET /api/history` | required | Your saved runs |
@@ -267,7 +275,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-75 tests covering search retry, caching and failure semantics; plan reuse; researcher outcome
+83 tests covering search retry, caching and failure semantics; plan reuse; sign-up rate limiting; researcher outcome
 handling; graph routing predicates; session store behaviour across both backends;
 CORS configuration; authentication and per-user history isolation; an integration
 test driving the real compiled graph through a refine round; and an end-to-end
@@ -399,7 +407,6 @@ multi-agent-research/
 - **User-selectable depth** -- quick (1 search per sub-task) vs deep (5)
 - **Agent memory** -- let the Analyst reference a user's earlier research
 - **Export** -- download a report as PDF
-- **Rate limiting** -- nothing currently throttles account registration
 - **Streamed sources** -- surface each source as it is found, not only at the end
 
 ## License

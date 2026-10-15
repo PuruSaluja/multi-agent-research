@@ -221,7 +221,6 @@ Capturing them surfaced two things:
 
 ### Next
 - Stream the Writer's sources as they are collected rather than only at the end
-- Rate-limit registration; there is nothing stopping bulk account creation
 - Deploy to Render + Vercel
 
 ---

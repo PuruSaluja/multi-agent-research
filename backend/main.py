@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
@@ -18,6 +18,7 @@ load_dotenv()
 
 # Imported after load_dotenv() so API keys are present when clients are built.
 import config  # noqa: E402
+import rate_limit  # noqa: E402
 import sessions as session_store  # noqa: E402
 from agents.writer import collect_sources  # noqa: E402
 from auth import (  # noqa: E402
@@ -232,7 +233,26 @@ async def stream_research(session_id: str):
 
 
 @app.post("/api/auth/register", response_model=TokenResponse, status_code=201)
-async def register(creds: Credentials):
+async def register(creds: Credentials, request: Request):
+    # Counts attempts, not successes, so repeated 409s on a taken email are
+    # throttled too. Behind a proxy, uvicorn only reports the real client IP
+    # when FORWARDED_ALLOW_IPS trusts that proxy (set in render.yaml);
+    # otherwise every user shares the proxy's address and one limit.
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = await asyncio.to_thread(
+        rate_limit.hit,
+        "register",
+        client_ip,
+        config.REGISTER_RATE_LIMIT,
+        config.REGISTER_RATE_WINDOW_SECONDS,
+    )
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-up attempts. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     email = creds.email.lower()
     with get_session() as session:
         if session.query(User).filter(User.email == email).first():

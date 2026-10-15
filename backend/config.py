@@ -48,6 +48,10 @@ DEFAULT_AUTH_SECRET = "insecure-development-secret-do-not-use-in-production"
 AUTH_SECRET = os.getenv("AUTH_SECRET", DEFAULT_AUTH_SECRET)
 AUTH_TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", str(14 * 24 * 3600)))
 
+# Registration attempts allowed per client IP per window. 0 disables.
+REGISTER_RATE_LIMIT = int(os.getenv("REGISTER_RATE_LIMIT", "5"))
+REGISTER_RATE_WINDOW_SECONDS = int(os.getenv("REGISTER_RATE_WINDOW_SECONDS", "3600"))
+
 
 def check_auth_secret() -> list[str]:
     """Problems with the signing secret, worst first. Empty when it is sound.

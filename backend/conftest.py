@@ -18,14 +18,17 @@ def _isolate_process_state(monkeypatch):
     """
     import cache
     import config
+    import rate_limit
     import sessions
     import shared
 
     monkeypatch.setattr(config, "REDIS_URL", None)
     cache.clear()
+    rate_limit.clear()
     shared.reset()
     sessions.reset_store()
     yield
     cache.clear()
+    rate_limit.clear()
     shared.reset()
     sessions.reset_store()

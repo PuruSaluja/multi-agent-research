@@ -22,6 +22,11 @@ services:
       # that is committed to this repository.
       - key: AUTH_SECRET
         generateValue: true
+      # Render's proxy is the only route to the service, so trust its
+      # X-Forwarded-For. Without this every request appears to come from the
+      # proxy and the sign-up rate limit applies to all users at once.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
       - key: PYTHONUNBUFFERED
         value: "1"
     healthCheckPath: /api/health

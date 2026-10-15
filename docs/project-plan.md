@@ -63,4 +63,3 @@ Originally also out of scope, all since built:
   rather than a fixed count.
 - SQLite by default. More than one instance needs `DATABASE_URL` pointed at
   Postgres.
-- Nothing rate-limits account registration.
